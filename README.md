@@ -29,13 +29,14 @@ In alternativa: chiudi del tutto il Claude principale prima di accedere.
 
 Claude Desktop accetta l'opzione `--user-data-dir`, che indica dove salvare login e impostazioni. La nuova app avvia lo stesso Claude con una cartella diversa, quindi le due istanze non si vedono e restano loggate ognuna con il suo account. Gli aggiornamenti di Claude valgono per entrambe.
 
-- **Mac:** l'app viene creata in `~/Applications`, i dati in `~/Library/Application Support/<nome>`.
+- **Mac:** l'app viene creata in `~/Applications`, i dati in `~/Library/Application Support/<nome>`. Per avere l'icona colorata anche nel Dock mentre l'app è aperta, viene usata una copia "clone" di Claude.app in `~/Library/Application Support/<nome> (app)`: su disco APFS non occupa spazio in più e viene ricreata da sola quando Claude si aggiorna.
 - **Windows:** collegamenti sul Desktop e nel menu Start, dati in `%APPDATA%\<nome>`. Serve Claude installato da claude.ai/download (non dal Microsoft Store).
 
 ## Limiti
 
-- Con l'app aperta, il Dock / la barra delle applicazioni mostra l'icona normale di Claude: quella colorata compare solo sul collegamento.
-- Per rimuovere tutto basta cancellare l'app (o i collegamenti) e la cartella dati.
+- **Windows:** con l'app aperta, la barra delle applicazioni mostra l'icona normale di Claude; quella colorata compare sul collegamento.
+- **Mac:** dopo un aggiornamento di Claude, il primo avvio di "Claude 2" richiede qualche secondo in più perché la copia viene ricreata.
+- Per rimuovere tutto basta cancellare l'app (o i collegamenti) e le cartelle dati.
 
 ## Note
 
