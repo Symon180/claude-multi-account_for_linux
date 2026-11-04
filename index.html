@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Multi Account</title>
-<meta name="description" content="Usa due account di Claude Desktop insieme su Mac o Windows, ognuno con il suo login e la sua icona.">
+<meta name="description" content="Use two Claude Desktop accounts side by side on Mac or Windows, each with its own sign-in and icon.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -103,6 +103,8 @@ kbd { font: 13px var(--mono); border: 1px solid var(--line); border-bottom-width
 .note { border-left: 3px solid var(--pick); padding: 4px 0 4px 14px; }
 .note h2 { margin-bottom: 4px; }
 .note p { margin: 0; color: var(--muted); }
+.top { display: flex; justify-content: flex-end; }
+.lang button { padding: 5px 12px; font-size: 13px; }
 footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
 footer a { color: inherit; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -110,84 +112,140 @@ footer a { color: inherit; }
 </head>
 <body>
 <main>
+  <div class="top">
+    <div class="seg lang" role="group" aria-label="Language / Lingua">
+      <button type="button" id="lang-en" data-lang="en">English</button>
+      <button type="button" id="lang-it" data-lang="it">Italiano</button>
+    </div>
+  </div>
+
   <header>
     <div class="badge" id="badge" aria-hidden="true">C2</div>
     <div>
       <h1>Claude Multi Account</h1>
-      <p class="lead">Due account di Claude Desktop aperti insieme, ognuno con il suo login e la sua icona.</p>
+      <p class="lead" data-i="lead"></p>
     </div>
   </header>
 
   <section aria-labelledby="h-os">
-    <div class="step"><b>Passo 1</b><h2 id="h-os">Il tuo computer</h2></div>
-    <div class="seg" role="group" aria-label="Sistema operativo">
+    <div class="step"><b data-i="s1"></b><h2 id="h-os" data-i="os"></h2></div>
+    <div class="seg" role="group" aria-labelledby="h-os">
       <button type="button" id="os-mac" data-os="mac">Mac</button>
       <button type="button" id="os-win" data-os="win">Windows</button>
     </div>
   </section>
 
   <section aria-labelledby="h-name">
-    <div class="step"><b>Passo 2</b><h2 id="h-name"><label for="name">Nome della nuova app</label></h2></div>
+    <div class="step"><b data-i="s2"></b><h2 id="h-name"><label for="name" data-i="name"></label></h2></div>
     <input type="text" id="name" value="Claude 2" maxlength="40" autocomplete="off" spellcheck="false">
-    <p class="hint" id="name-hint">Lettere, numeri, spazi, trattini.</p>
+    <p class="hint" id="name-hint"></p>
   </section>
 
   <section aria-labelledby="h-color">
-    <div class="step"><b>Passo 3</b><h2 id="h-color">Colore dell'icona</h2></div>
+    <div class="step"><b data-i="s3"></b><h2 id="h-color" data-i="color"></h2></div>
     <div class="swatches" id="swatches" role="group" aria-labelledby="h-color"></div>
   </section>
 
   <section aria-labelledby="h-run">
-    <div class="step"><b>Passo 4</b><h2 id="h-run">Copia ed esegui il comando</h2></div>
+    <div class="step"><b data-i="s4"></b><h2 id="h-run" data-i="run"></h2></div>
     <div class="receipt">
-      <span class="where" id="where">Terminale</span>
+      <span class="where" id="where"></span>
       <pre id="cmd"></pre>
-      <button type="button" class="copy" id="copy">Copia comando</button>
+      <button type="button" class="copy" id="copy"></button>
     </div>
     <ol class="howto" id="howto"></ol>
   </section>
 
   <div class="note">
-    <h2>Il primo accesso</h2>
-    <p>Nella nuova app non usare "Continua con Google". Scrivi l'email, premi "Continua con email" e incolla nella finestra il codice che ricevi. Se clicchi il link nell'email si apre l'altro Claude. In alternativa, chiudi del tutto il Claude principale prima di accedere.</p>
+    <h2 data-i="firstTitle"></h2>
+    <p data-i="first"></p>
   </div>
 
   <footer>
-    Strumento non ufficiale, non affiliato ad Anthropic. Non modifica l'app Claude: la avvia con una cartella dati separata.
-    Codice su <a href="https://github.com/andrea6687/claude-multi-account">GitHub</a>.
+    <span data-i="footer"></span>
+    <a href="https://github.com/andrea6687/claude-multi-account">GitHub</a>.
   </footer>
 </main>
 
 <script>
 const RAW = "https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/";
+// [command value, hue shift in degrees, English label, Italian label]
 const COLORS = [
-  ["blu", 200], ["verde", 110], ["viola", 255], ["rosa", 315],
-  ["azzurro", 175], ["giallo", 35], ["nessuno", 0]
+  ["blue", 200, "blue", "blu"], ["green", 110, "green", "verde"], ["purple", 255, "purple", "viola"],
+  ["pink", 315, "pink", "rosa"], ["cyan", 175, "cyan", "azzurro"], ["yellow", 35, "yellow", "giallo"],
+  ["none", 0, "original", "originale"]
 ];
-const BASE_HUE = 15; // tonalità di partenza dell'icona di Claude
+const BASE_HUE = 15; // Claude's icon starting hue
 
+const TEXT = {
+  en: {
+    lead: "Two Claude Desktop accounts open at the same time, each with its own sign-in and icon.",
+    s1: "Step 1", s2: "Step 2", s3: "Step 3", s4: "Step 4",
+    os: "Your computer", name: "Name of the new app", color: "Icon color", run: "Copy and run the command",
+    hintOk: "Letters, numbers, spaces, dashes.", hintBad: "Use only letters, numbers, spaces, - and _",
+    fixName: "Fix the name in step 2.",
+    copy: "Copy command", copied: "Copied", selected: "Selected: press Copy",
+    whereMac: "Terminal · Mac", whereWin: "PowerShell · Windows",
+    howMac: `<li>Open <b>Terminal</b>: press <kbd>⌘</kbd> <kbd>Space</kbd> and type "Terminal".</li>
+             <li>Paste the command with <kbd>⌘</kbd> <kbd>V</kbd> and press <kbd>Return</kbd>.</li>
+             <li>You'll find the new app in Applications (in your home folder) or with Spotlight.</li>`,
+    howWin: `<li>Right-click the Start button and choose <b>Terminal</b> (or Windows PowerShell).</li>
+             <li>Paste the command with <kbd>Ctrl</kbd> <kbd>V</kbd> and press <kbd>Enter</kbd>.</li>
+             <li>You'll find the new shortcut on the Desktop and in the Start menu.</li>`,
+    firstTitle: "The first sign-in",
+    first: "In the new app don't use \"Continue with Google\". Type your email, press \"Continue with email\" and paste the code you receive into the window. If you click the link in the email, the other Claude opens instead. Alternatively, fully quit the main Claude before signing in.",
+    footer: "Unofficial tool, not affiliated with Anthropic. It doesn't modify the Claude app: it launches it with a separate data folder. Code on"
+  },
+  it: {
+    lead: "Due account di Claude Desktop aperti insieme, ognuno con il suo login e la sua icona.",
+    s1: "Passo 1", s2: "Passo 2", s3: "Passo 3", s4: "Passo 4",
+    os: "Il tuo computer", name: "Nome della nuova app", color: "Colore dell'icona", run: "Copia ed esegui il comando",
+    hintOk: "Lettere, numeri, spazi, trattini.", hintBad: "Usa solo lettere, numeri, spazi, - e _",
+    fixName: "Correggi il nome al passo 2.",
+    copy: "Copia comando", copied: "Copiato", selected: "Selezionato: premi Copia",
+    whereMac: "Terminale · Mac", whereWin: "PowerShell · Windows",
+    howMac: `<li>Apri il <b>Terminale</b>: premi <kbd>⌘</kbd> <kbd>Spazio</kbd> e scrivi "Terminale".</li>
+             <li>Incolla il comando con <kbd>⌘</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
+             <li>Trovi la nuova app in Applicazioni (nella tua cartella Inizio) o con Spotlight.</li>`,
+    howWin: `<li>Clicca col tasto destro sul pulsante Start e scegli <b>Terminale</b> (o Windows PowerShell).</li>
+             <li>Incolla il comando con <kbd>Ctrl</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
+             <li>Trovi il nuovo collegamento sul Desktop e nel menu Start.</li>`,
+    firstTitle: "Il primo accesso",
+    first: "Nella nuova app non usare \"Continua con Google\". Scrivi l'email, premi \"Continua con email\" e incolla nella finestra il codice che ricevi. Se clicchi il link nell'email si apre l'altro Claude. In alternativa, chiudi del tutto il Claude principale prima di accedere.",
+    footer: "Strumento non ufficiale, non affiliato ad Anthropic. Non modifica l'app Claude: la avvia con una cartella dati separata. Codice su"
+  }
+};
+
+function savedLang() { try { return localStorage.getItem("lang"); } catch { return null; } }
 const state = {
+  lang: savedLang() || (/^it\b/i.test(navigator.language || "") ? "it" : "en"),
   os: /Win/i.test(navigator.userAgent) ? "win" : "mac",
   name: "Claude 2",
-  color: "blu"
+  color: "blue"
 };
 
 const $ = id => document.getElementById(id);
 const hueFor = c => (BASE_HUE + (COLORS.find(x => x[0] === c)?.[1] || 0)) % 360;
 const valid = n => /^[A-Za-z0-9 _-]+$/.test(n);
 
-// Colori di esempio
+// Color chips
 const sw = $("swatches");
 COLORS.forEach(([c]) => {
   const b = document.createElement("button");
-  b.type = "button"; b.className = "swatch" + (c === "nessuno" ? " none" : ""); b.dataset.c = c; b.id = "c-" + c;
+  b.type = "button"; b.className = "swatch" + (c === "none" ? " none" : ""); b.dataset.c = c; b.id = "c-" + c;
   const i = document.createElement("i");
-  if (c !== "nessuno") i.style.background = `hsl(${hueFor(c)}, 62%, 56%)`;
-  b.append(i, document.createTextNode(c === "nessuno" ? "originale" : c));
+  if (c !== "none") i.style.background = `hsl(${hueFor(c)}, 62%, 56%)`;
+  const label = document.createElement("span");
+  b.append(i, label);
   b.onclick = () => { state.color = c; render(); };
   sw.append(b);
 });
-document.querySelectorAll(".seg button").forEach(b => b.onclick = () => { state.os = b.dataset.os; render(); });
+document.querySelectorAll("[data-os]").forEach(b => b.onclick = () => { state.os = b.dataset.os; render(); });
+document.querySelectorAll("[data-lang]").forEach(b => b.onclick = () => {
+  state.lang = b.dataset.lang;
+  try { localStorage.setItem("lang", state.lang); } catch {}
+  render();
+});
 $("name").addEventListener("input", e => { state.name = e.target.value; render(); });
 
 function command() {
@@ -199,43 +257,46 @@ function command() {
 }
 
 function render() {
+  const T = TEXT[state.lang];
+  document.documentElement.lang = state.lang;
+  document.querySelectorAll("[data-i]").forEach(el => { el.textContent = T[el.dataset.i]; });
+  document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === state.lang));
+  document.querySelectorAll(".swatch").forEach(b => {
+    const row = COLORS.find(x => x[0] === b.dataset.c);
+    b.querySelector("span").textContent = state.lang === "it" ? row[3] : row[2];
+    b.setAttribute("aria-pressed", b.dataset.c === state.color);
+  });
+
   const ok = valid(state.name.trim() || "x");
   const hint = $("name-hint");
-  hint.textContent = ok ? "Lettere, numeri, spazi, trattini." : "Usa solo lettere, numeri, spazi, - e _";
+  hint.textContent = ok ? T.hintOk : T.hintBad;
   hint.classList.toggle("err", !ok);
 
-  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.os === state.os));
-  document.querySelectorAll(".swatch").forEach(b => b.setAttribute("aria-pressed", b.dataset.c === state.color));
+  document.querySelectorAll("[data-os]").forEach(b => b.setAttribute("aria-pressed", b.dataset.os === state.os));
 
-  const pick = state.color === "nessuno" ? "hsl(15, 62%, 56%)" : `hsl(${hueFor(state.color)}, 62%, 52%)`;
+  const pick = state.color === "none" ? "hsl(15, 62%, 56%)" : `hsl(${hueFor(state.color)}, 62%, 52%)`;
   document.documentElement.style.setProperty("--pick", pick);
   const n = (state.name.trim() || "Claude 2");
-  const initials = n.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
-  $("badge").textContent = initials || "C2";
+  $("badge").textContent = n.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "C2";
 
-  $("cmd").textContent = ok ? command() : "Correggi il nome al passo 2.";
+  $("cmd").textContent = ok ? command() : T.fixName;
   $("copy").disabled = !ok;
-  $("where").textContent = state.os === "mac" ? "Terminale · Mac" : "PowerShell · Windows";
-  $("howto").innerHTML = state.os === "mac"
-    ? `<li>Apri il <b>Terminale</b>: premi <kbd>⌘</kbd> <kbd>Spazio</kbd> e scrivi "Terminale".</li>
-       <li>Incolla il comando con <kbd>⌘</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
-       <li>Trovi la nuova app in Applicazioni (nella tua cartella Inizio) o con Spotlight.</li>`
-    : `<li>Clicca col tasto destro sul pulsante Start e scegli <b>Terminale</b> (o Windows PowerShell).</li>
-       <li>Incolla il comando con <kbd>Ctrl</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
-       <li>Trovi il nuovo collegamento sul Desktop e nel menu Start.</li>`;
+  $("copy").textContent = T.copy;
+  $("where").textContent = state.os === "mac" ? T.whereMac : T.whereWin;
+  $("howto").innerHTML = state.os === "mac" ? T.howMac : T.howWin;
 }
 
 $("copy").onclick = async () => {
-  const btn = $("copy"), text = $("cmd").textContent;
+  const btn = $("copy"), T = TEXT[state.lang];
   try {
-    await navigator.clipboard.writeText(text);
-    btn.textContent = "Copiato";
+    await navigator.clipboard.writeText($("cmd").textContent);
+    btn.textContent = T.copied;
   } catch {
     const r = document.createRange(); r.selectNodeContents($("cmd"));
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-    btn.textContent = "Selezionato: premi Copia";
+    btn.textContent = T.selected;
   }
-  setTimeout(() => btn.textContent = "Copia comando", 2200);
+  setTimeout(() => btn.textContent = TEXT[state.lang].copy, 2200);
 };
 
 render();

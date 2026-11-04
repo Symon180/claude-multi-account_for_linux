@@ -1,105 +1,116 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  Claude Desktop – secondo account (macOS)
+#  Claude Multi Account – macOS
 #
-#  Crea una seconda app ("Claude 2") che avvia Claude Desktop con un login
-#  separato, così puoi usare due account insieme. Le dà anche un'icona di
-#  un altro colore, visibile anche nel Dock mentre l'app è aperta.
-#  L'app Claude originale non viene modificata: per l'icona colorata viene
-#  usata una copia "clone" di Claude.app, che non occupa spazio in più e viene
-#  riallineata da sola quando Claude si aggiorna.
+#  Creates a second app ("Claude 2") that launches Claude Desktop with a
+#  separate login, so you can use two accounts side by side. It also gets an
+#  icon in a different color, visible in the Dock while the app is running.
+#  The original Claude app is never modified: the colored icon lives on an
+#  APFS "clone" copy of Claude.app, which takes no extra disk space and is
+#  refreshed automatically when Claude updates.
 #
-#  Uso (incolla nel Terminale):
+#  Usage (paste into Terminal):
 #    curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash
-#  Con nome e colore già scelti:
-#    curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash -s -- "Claude 2" blu
+#  With name and color preset:
+#    curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash -s -- "Claude 2" blue
 #
-#  Colori: blu, verde, viola, rosa, azzurro, giallo, nessuno
+#  Colors: blue, green, purple, pink, cyan, yellow, none
+#          (Italian names work too: blu, verde, viola, rosa, azzurro, giallo, nessuno)
 #
-#  PRIMO LOGIN – IMPORTANTE:
-#    Nella nuova app NON usare "Continua con Google". Scrivi l'email e premi
-#    "Continua con email", poi copia il CODICE dall'email nella finestra
-#    (non cliccare il link, altrimenti si apre l'altra app Claude).
-#    In alternativa: chiudi l'app Claude principale (Cmd+Q) prima di accedere.
+#  FIRST SIGN-IN – IMPORTANT:
+#    In the new app do NOT use "Continue with Google". Type your email, press
+#    "Continue with email", then paste the CODE from the email into the window
+#    (don't click the link, or the other Claude app will open).
+#    Alternatively: quit the main Claude app (Cmd+Q) before signing in.
 #
-#  Per rimuoverla: cancella ~/Applications/<nome>.app e le cartelle
-#  ~/Library/Application Support/<nome> e ~/Library/Application Support/<nome> (app)
+#  To remove: delete ~/Applications/<name>.app and the folders
+#  ~/Library/Application Support/<name> and ~/Library/Application Support/<name> (app)
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -e
 
+# Messages follow the system language: Italian if the Mac is set to Italian, English otherwise.
+LINGUA=$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' "(),\n' | cut -c1-2)
+t() { if [ "$LINGUA" = "it" ]; then echo "$2"; else echo "$1"; fi; }
+
 CLAUDE="/Applications/Claude.app"
 if [ ! -d "$CLAUDE" ]; then
-  echo "❌ Non trovo Claude in /Applications. Installa prima Claude Desktop da claude.ai/download"
+  t "❌ Claude not found in /Applications. Install Claude Desktop first from claude.ai/download" \
+    "❌ Non trovo Claude in /Applications. Installa prima Claude Desktop da claude.ai/download"
   exit 1
 fi
 
-# ── Nome e colore ────────────────────────────────────────────────────────────
+# ── Name and color ───────────────────────────────────────────────────────────
 NOME="$1"
 COLORE="$2"
 if [ -z "$NOME" ]; then
-  read -r -p "Nome della nuova app [Claude 2]: " NOME < /dev/tty || true
+  read -r -p "$(t 'Name of the new app [Claude 2]: ' 'Nome della nuova app [Claude 2]: ')" NOME < /dev/tty || true
   NOME="${NOME:-Claude 2}"
 fi
 if [ -z "$COLORE" ]; then
-  read -r -p "Colore icona (blu, verde, viola, rosa, azzurro, giallo, nessuno) [blu]: " COLORE < /dev/tty || true
-  COLORE="${COLORE:-blu}"
+  read -r -p "$(t 'Icon color (blue, green, purple, pink, cyan, yellow, none) [blue]: ' 'Colore icona (blu, verde, viola, rosa, azzurro, giallo, nessuno) [blu]: ')" COLORE < /dev/tty || true
+  COLORE="${COLORE:-blue}"
 fi
 COLORE=$(echo "$COLORE" | tr '[:upper:]' '[:lower:]')
 if [[ ! "$NOME" =~ ^[A-Za-z0-9\ _-]+$ ]]; then
-  echo "❌ Il nome può contenere solo lettere, numeri, spazi, - e _"; exit 1
+  t "❌ The name may only contain letters, numbers, spaces, - and _" \
+    "❌ Il nome può contenere solo lettere, numeri, spazi, - e _"
+  exit 1
 fi
 
-# Spostamento di tonalità in gradi, partendo dall'arancio di Claude.
+# Hue shift in degrees, starting from Claude's orange.
 case "$COLORE" in
-  blu)     GRADI=200 ;;
-  verde)   GRADI=110 ;;
-  viola)   GRADI=255 ;;
-  rosa)    GRADI=315 ;;
-  azzurro) GRADI=175 ;;
-  giallo)  GRADI=35  ;;
-  nessuno) GRADI=""  ;;
-  *) echo "❌ Colore non riconosciuto: $COLORE"; exit 1 ;;
+  blue|blu)        GRADI=200 ;;
+  green|verde)     GRADI=110 ;;
+  purple|viola)    GRADI=255 ;;
+  pink|rosa)       GRADI=315 ;;
+  cyan|azzurro)    GRADI=175 ;;
+  yellow|giallo)   GRADI=35  ;;
+  none|nessuno)    GRADI=""  ;;
+  *) t "❌ Unknown color: $COLORE" "❌ Colore non riconosciuto: $COLORE"; exit 1 ;;
 esac
 
 APP="$HOME/Applications/$NOME.app"
-DATI="$HOME/Library/Application Support/$NOME"          # login e impostazioni del secondo account
-MOTORE="$HOME/Library/Application Support/$NOME (app)"  # copia di Claude con l'icona colorata
+DATI="$HOME/Library/Application Support/$NOME"          # sign-in and settings of the second account
+MOTORE="$HOME/Library/Application Support/$NOME (app)"  # copy of Claude with the colored icon
 
-# ── 1. Cartelle ──────────────────────────────────────────────────────────────
-echo "→ Cartella dati separata: $DATI"
+# ── 1. Folders ───────────────────────────────────────────────────────────────
+echo "→ $(t 'Separate data folder' 'Cartella dati separata'): $DATI"
 mkdir -p "$DATI" "$MOTORE" "$HOME/Applications"
 
-# ── 2. Strumento che colora l'icona (usato ora e a ogni aggiornamento) ──────
+# ── 2. Icon recoloring tool (used now and after every Claude update) ────────
 cat > "$MOTORE/colora.js" <<'EOF'
 ObjC.import('AppKit');
 ObjC.import('CoreImage');
 
-// Uso: osascript -l JavaScript colora.js <app di origine> <app da colorare> <gradi>
+// Usage: osascript -l JavaScript colora.js <source app> <app to recolor> <degrees>
 function run(argv) {
-  var originale = argv[0], destinazione = argv[1], gradi = parseFloat(argv[2]);
+  var source = argv[0], target = argv[1], degrees = parseFloat(argv[2]);
   var S = 1024;
 
-  var icona = $.NSWorkspace.sharedWorkspace.iconForFile(originale);
-  var tela = $.NSImage.alloc.initWithSize($.NSMakeSize(S, S));
-  tela.lockFocus;
-  icona.drawInRectFromRectOperationFraction($.NSMakeRect(0, 0, S, S), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1.0);
-  tela.unlockFocus;
+  // Draw Claude's icon at 1024x1024.
+  var icon = $.NSWorkspace.sharedWorkspace.iconForFile(source);
+  var canvas = $.NSImage.alloc.initWithSize($.NSMakeSize(S, S));
+  canvas.lockFocus;
+  icon.drawInRectFromRectOperationFraction($.NSMakeRect(0, 0, S, S), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1.0);
+  canvas.unlockFocus;
 
-  var ci = $.CIImage.imageWithData(tela.TIFFRepresentation);
-  var filtro = $.CIFilter.filterWithName('CIHueAdjust');
-  filtro.setValueForKey(ci, 'inputImage');
-  filtro.setValueForKey($.NSNumber.numberWithDouble(gradi * Math.PI / 180), 'inputAngle');
-  var bitmap = $.NSBitmapImageRep.alloc.initWithCIImage(filtro.valueForKey('outputImage'));
-  var nuova = $.NSImage.alloc.initWithSize(bitmap.size);
-  nuova.addRepresentation(bitmap);
+  // Shift the hue.
+  var ci = $.CIImage.imageWithData(canvas.TIFFRepresentation);
+  var filter = $.CIFilter.filterWithName('CIHueAdjust');
+  filter.setValueForKey(ci, 'inputImage');
+  filter.setValueForKey($.NSNumber.numberWithDouble(degrees * Math.PI / 180), 'inputAngle');
+  var bitmap = $.NSBitmapImageRep.alloc.initWithCIImage(filter.valueForKey('outputImage'));
+  var result = $.NSImage.alloc.initWithSize(bitmap.size);
+  result.addRepresentation(bitmap);
 
-  return $.NSWorkspace.sharedWorkspace.setIconForFileOptions(nuova, destinazione, 0) ? 'ok' : 'errore';
+  // Apply it as the app's custom icon.
+  return $.NSWorkspace.sharedWorkspace.setIconForFileOptions(result, target, 0) ? 'ok' : 'error';
 }
 EOF
 
-# ── 3. App di avvio ──────────────────────────────────────────────────────────
-echo "→ Creo l'app: $APP"
+# ── 3. Launcher app ──────────────────────────────────────────────────────────
+echo "→ $(t 'Creating the app' "Creo l'app"): $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
@@ -109,21 +120,21 @@ LANCIATORE="$APP/Contents/MacOS/avvia"
   printf 'SRC=%q\nMOTORE=%q\nDATI=%q\nNOME=%q\nGRADI=%q\n' "$CLAUDE" "$MOTORE" "$DATI" "$NOME" "$GRADI"
   cat <<'EOF'
 
-# Senza colore: avvia direttamente Claude con la cartella dati separata.
+# No color: launch Claude directly with the separate data folder.
 if [ -z "$GRADI" ]; then
   exec open -n -a "$SRC" --args --user-data-dir="$DATI"
 fi
 
-# Con colore: usa una copia di Claude con l'icona colorata, così l'icona
-# resta colorata anche nel Dock mentre l'app è aperta.
+# With color: launch a copy of Claude that carries the colored icon,
+# so the icon stays colored in the Dock while the app is running.
 COPIA="$MOTORE/$NOME.app"
-versione() { defaults read "$1/Contents/Info" CFBundleShortVersionString 2>/dev/null; }
+version() { defaults read "$1/Contents/Info" CFBundleShortVersionString 2>/dev/null; }
 
 if ! pgrep -f "$COPIA/Contents/MacOS/" >/dev/null 2>&1; then
-  if [ ! -d "$COPIA" ] || [ "$(versione "$SRC")" != "$(versione "$COPIA")" ] || [ ! -e "$COPIA/Icon"$'\r' ]; then
-    # Prima volta, Claude aggiornato o icona persa: ricrea la copia.
+  if [ ! -d "$COPIA" ] || [ "$(version "$SRC")" != "$(version "$COPIA")" ] || [ ! -e "$COPIA/Icon"$'\r' ]; then
+    # First run, Claude updated, or icon lost: rebuild the copy.
     rm -rf "$COPIA"
-    # "cp -c" crea un clone APFS: istantaneo e senza spazio in più.
+    # "cp -c" makes an APFS clone: instant and no extra disk space.
     cp -cR "$SRC" "$COPIA" 2>/dev/null || { rm -rf "$COPIA"; cp -R "$SRC" "$COPIA"; }
     xattr -dr com.apple.quarantine "$COPIA" 2>/dev/null
     osascript -l JavaScript "$MOTORE/colora.js" "$SRC" "$COPIA" "$GRADI" >/dev/null 2>&1
@@ -163,28 +174,39 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# ── 4. Icona colorata sull'app di avvio (la copia viene colorata al primo avvio) ─
+# ── 4. Colored icon on the launcher (the copy gets it on first launch) ───────
 if [ -n "$GRADI" ]; then
-  echo "→ Coloro l'icona di $COLORE"
-  # Se esiste una copia vecchia (installazione precedente), la si ricrea al prossimo avvio.
+  echo "→ $(t "Coloring the icon: $COLORE" "Coloro l'icona: $COLORE")"
+  # An older copy (previous install) will be rebuilt on next launch.
   rm -rf "$MOTORE/$NOME.app"
   ESITO=$(osascript -l JavaScript "$MOTORE/colora.js" "$CLAUDE" "$APP" "$GRADI" 2>&1 || true)
   if [ "$ESITO" != "ok" ]; then
-    echo "⚠️  Icona colorata non applicata ($ESITO). L'app funziona lo stesso, con l'icona normale."
+    t "⚠️  Colored icon not applied ($ESITO). The app still works, with the regular icon." \
+      "⚠️  Icona colorata non applicata ($ESITO). L'app funziona lo stesso, con l'icona normale."
   fi
 fi
 
-# ── 5. Fa conoscere la nuova app a macOS ─────────────────────────────────────
+# ── 5. Register the new app with macOS ───────────────────────────────────────
 touch "$APP"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true
 killall Dock 2>/dev/null || true
 
 echo ""
-echo "✅ Fatto! \"$NOME\" è in ~/Applications (la trovi anche con Spotlight)."
-echo ""
-echo "   Se \"$NOME\" è già aperta, chiudila (Cmd+Q) e riaprila per vedere la nuova icona."
-echo "   Il primo avvio può richiedere qualche secondo in più."
-echo ""
-echo "   Primo accesso: usa \"Continua con email\" e incolla il CODICE ricevuto"
-echo "   via email nella finestra (non cliccare il link nell'email)."
+if [ "$LINGUA" = "it" ]; then
+  echo "✅ Fatto! \"$NOME\" è in ~/Applications (la trovi anche con Spotlight)."
+  echo ""
+  echo "   Se \"$NOME\" è già aperta, chiudila (Cmd+Q) e riaprila per vedere la nuova icona."
+  echo "   Il primo avvio può richiedere qualche secondo in più."
+  echo ""
+  echo "   Primo accesso: usa \"Continua con email\" e incolla il CODICE ricevuto"
+  echo "   via email nella finestra (non cliccare il link nell'email)."
+else
+  echo "✅ Done! \"$NOME\" is in ~/Applications (you can also find it with Spotlight)."
+  echo ""
+  echo "   If \"$NOME\" is already open, quit it (Cmd+Q) and reopen it to see the new icon."
+  echo "   The first launch may take a few extra seconds."
+  echo ""
+  echo "   First sign-in: use \"Continue with email\" and paste the CODE you receive"
+  echo "   by email into the window (don't click the link in the email)."
+fi
 open -R "$APP"
