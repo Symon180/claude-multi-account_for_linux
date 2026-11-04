@@ -21,7 +21,7 @@
 #
 #  Claude Desktop must be in /Applications.
 #  Data: ~/Library/Application Support/ClaudeMultiAccount/<name>/
-#  Clone: ~/Library/Application Support/ClaudeMultiAccount/<name>/app/
+#  Clone: ~/Library/Application Support/ClaudeMultiAccount/apps/<name>.app
 #  The Dock restarts for a moment so the icon updates.
 #
 #  FIRST SIGN-IN – IMPORTANT:
@@ -68,7 +68,7 @@ app_is_ours() {
 is_protected() {
   local p="${1%/}"
   case "$p" in
-    ""|"/"|"$HOME"|"$HOME/Applications"|"$HOME/Desktop"|"$HOME/Library"|"$HOME/Library/Application Support"|"$HOME/Library/Application Support/ClaudeMultiAccount")
+    ""|"/"|"$HOME"|"$HOME/Applications"|"$HOME/Desktop"|"$HOME/Library"|"$HOME/Library/Application Support"|"$HOME/Library/Application Support/ClaudeMultiAccount"|"$HOME/Library/Application Support/ClaudeMultiAccount/apps")
       return 0 ;;
     *) return 1 ;;
   esac
@@ -100,24 +100,96 @@ rm_tree() {
   rm -rf -- "$target"
 }
 
-# DATI= / MOTORE= lines are written with printf %q.
-launcher_var() {
-  local file="$1" key="$2" line="" val=""
-  if [ -f "$file" ]; then
-    line=$(grep -m1 "^${key}=" "$file" || true)
+# Undo the backslash escapes written by printf %q, without executing the line.
+unquote_q() {
+  local s="$1" out="" i=0 c next len backslash=$'\134'
+  if [ "${s#\$\'}" != "$s" ] && [ "${s%\'}" != "$s" ]; then
+    s="${s#\$\'}"
+    s="${s%\'}"
+  elif [ "${s#\'}" != "$s" ] && [ "${s%\'}" != "$s" ]; then
+    s="${s#\'}"
+    s="${s%\'}"
   fi
-  case "$line" in
-    "$key"=*) ;;
-    *) printf '%s' ""; return 0 ;;
-  esac
-  # %q output is an assignment. Reject command separators and expansions.
-  dollar='$'
-  if [[ "$line" == *';'* || "$line" == *'|'* || "$line" == *'&'* || "$line" == *'`'* || "$line" == *"${dollar}("* || "$line" == *"${dollar}{"* ]]; then
-    printf '%s' ""
+  len=${#s}
+  while [ "$i" -lt "$len" ]; do
+    c=${s:i:1}
+    if [ "$c" = "$backslash" ]; then
+      i=$((i + 1))
+      [ "$i" -lt "$len" ] || break
+      next=${s:i:1}
+      case "$next" in
+        n) out="${out}"$'\n' ;;
+        t) out="${out}"$'\t' ;;
+        r) out="${out}"$'\r' ;;
+        *) out="${out}${next}" ;;
+      esac
+    else
+      out="${out}${c}"
+    fi
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+
+read_kv() {
+  local file="$1" key="$2" k v
+  [ -f "$file" ] || return 0
+  while IFS='=' read -r k v || [ -n "$k" ]; do
+    if [ "$k" = "$key" ]; then
+      printf '%s' "$v"
+      return 0
+    fi
+  done < "$file"
+  printf '%s' ""
+}
+
+launcher_setting() {
+  local app="$1" key="$2" cfg="" line="" raw=""
+  cfg="$app/Contents/Resources/config"
+  if [ -f "$cfg" ]; then
+    read_kv "$cfg" "$key"
     return 0
   fi
-  val=$(bash --noprofile --norc -c 'eval "$1"; eval "printf %s \"\${$2}\""' _ "$line" "$key" 2>/dev/null || true)
-  printf '%s' "$val"
+  [ -f "$app/Contents/MacOS/avvia" ] || return 0
+  line=$(grep -m1 "^${key}=" "$app/Contents/MacOS/avvia" || true)
+  [ -n "$line" ] || return 0
+  raw=${line#"${key}="}
+  unquote_q "$raw"
+}
+
+copy_running() {
+  local needle="$1"
+  [ -n "$needle" ] || return 1
+  # shellcheck disable=SC2009
+  ps -axo command= | grep -F -- "$needle" | grep -qvF -- grep
+}
+
+require_not_running() {
+  local extra_copia="${1-}" extra_motore="${2-}" p
+  local -a needles=()
+  needles+=("$NEW_COPIA/Contents/MacOS/")
+  needles+=("$OLD_NESTED/$NOME.app/Contents/MacOS/")
+  needles+=("$LEGACY_MOTORE/$NOME.app/Contents/MacOS/")
+  if [ -n "$extra_copia" ]; then
+    needles+=("${extra_copia%/}/Contents/MacOS/")
+  fi
+  if [ -n "$extra_motore" ]; then
+    needles+=("${extra_motore%/}/$NOME.app/Contents/MacOS/")
+  fi
+  for p in "${needles[@]}"; do
+    if copy_running "$p"; then
+      die "❌ Quit \"$NOME\" (Cmd+Q) and run this again." "❌ Chiudi \"$NOME\" (Cmd+Q) e rilancia."
+    fi
+  done
+}
+
+launch_register() {
+  local reg="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [ -x "$reg" ]; then
+    "$reg" "$@" 2>/dev/null || true
+  elif command -v lsregister >/dev/null 2>&1; then
+    command lsregister "$@" 2>/dev/null || true
+  fi
 }
 
 dir_empty() {
@@ -149,28 +221,42 @@ add_login() {
 }
 
 do_uninstall() {
-  local existing_dati="" existing_motore="" removed_any=0 app_removed=0 declined=0 avvia d ans="" ans_lc=""
+  local existing_dati="" existing_motore="" existing_copia="" removed_any=0 app_removed=0 declined=0 d ans="" ans_lc=""
   local -a login_dirs=()
-  avvia="$APP/Contents/MacOS/avvia"
 
   if [ -e "$APP" ]; then
     if ! app_is_ours "$APP"; then
       die "❌ \"$APP\" already exists and is not a Claude Multi Account launcher. Nothing was changed." \
         "❌ \"$APP\" esiste già e non è un launcher di Claude Multi Account. Non ho modificato nulla."
     fi
-    existing_dati=$(launcher_var "$avvia" DATI)
-    existing_motore=$(launcher_var "$avvia" MOTORE)
+    existing_dati=$(launcher_setting "$APP" DATI)
+    existing_motore=$(launcher_setting "$APP" MOTORE)
+    existing_copia=$(launcher_setting "$APP" COPIA)
+  fi
+  require_not_running "$existing_copia" "$existing_motore"
+
+  if [ -e "$APP" ]; then
     rm_tree "$APP"
     removed_any=1
     app_removed=1
   fi
 
-  if [ -d "$NEW_MOTORE" ]; then
-    rm_tree "$NEW_MOTORE"
+  if [ -d "$NEW_COPIA" ]; then
+    launch_register -u "$NEW_COPIA"
+    rm_tree "$NEW_COPIA"
+    removed_any=1
+  fi
+  if dir_empty "$APPS"; then
+    rmdir -- "$APPS" || true
+  fi
+  if [ -d "$OLD_NESTED" ]; then
+    launch_register -u "$OLD_NESTED/$NOME.app"
+    rm_tree "$OLD_NESTED"
     removed_any=1
   fi
   if [ -d "$LEGACY_MOTORE" ]; then
     if [ "$existing_motore" = "$LEGACY_MOTORE" ] || [ -f "$LEGACY_MOTORE/colora.js" ]; then
+      launch_register -u "$LEGACY_MOTORE/$NOME.app"
       rm_tree "$LEGACY_MOTORE"
       removed_any=1
     fi
@@ -261,9 +347,14 @@ fi
 
 PREFIX="$HOME/Library/Application Support/ClaudeMultiAccount"
 APP="$HOME/Applications/$NOME.app"
+APPS="$PREFIX/apps"
 NEW_DATI="$PREFIX/$NOME"
-NEW_MOTORE="$PREFIX/$NOME/app"
+NEW_COPIA="$APPS/$NOME.app"
+OLD_NESTED="$PREFIX/$NOME/app"
 LEGACY_MOTORE="$HOME/Library/Application Support/$NOME (app)"
+if [ "$NEW_DATI" = "$PREFIX" ] || [ "$NEW_DATI" = "$APPS" ]; then
+  die "❌ This name is reserved. Choose another one." "❌ Questo nome è riservato. Scegline un altro."
+fi
 
 if [ "$UNINSTALL" -eq 1 ]; then
   do_uninstall
@@ -289,25 +380,49 @@ esac
 
 # Keep the data folder recorded in an existing launcher so the sign-in survives.
 DATI="$NEW_DATI"
-MOTORE="$NEW_MOTORE"
+COPIA="$NEW_COPIA"
+EXISTING_DATI=""
+EXISTING_MOTORE=""
+EXISTING_COPIA=""
 if [ -e "$APP" ]; then
   if ! app_is_ours "$APP"; then
     die "❌ \"$APP\" already exists and is not a Claude Multi Account launcher. Nothing was changed." \
       "❌ \"$APP\" esiste già e non è un launcher di Claude Multi Account. Non ho modificato nulla."
   fi
-  EXISTING_DATI=$(launcher_var "$APP/Contents/MacOS/avvia" DATI)
+  EXISTING_DATI=$(launcher_setting "$APP" DATI)
+  EXISTING_MOTORE=$(launcher_setting "$APP" MOTORE)
+  EXISTING_COPIA=$(launcher_setting "$APP" COPIA)
   if [ -n "$EXISTING_DATI" ] && path_ok "$EXISTING_DATI"; then
     DATI="$EXISTING_DATI"
   fi
+fi
+require_not_running "$EXISTING_COPIA" "$EXISTING_MOTORE"
+
+if [ -d "$LEGACY_MOTORE" ]; then
+  if [ "$EXISTING_MOTORE" = "$LEGACY_MOTORE" ] || [ -f "$LEGACY_MOTORE/colora.js" ]; then
+    launch_register -u "$LEGACY_MOTORE/$NOME.app"
+    rm_tree "$LEGACY_MOTORE"
+  fi
+fi
+if [ -d "$OLD_NESTED" ]; then
+  launch_register -u "$OLD_NESTED/$NOME.app"
+  rm_tree "$OLD_NESTED"
+fi
+if [ -d "$COPIA" ]; then
+  launch_register -u "$COPIA"
+  rm_tree "$COPIA"
+fi
+if [ -e "$APP" ]; then
   rm_tree "$APP"
 fi
 
 # ── 1. Folders ───────────────────────────────────────────────────────────────
 echo "→ $(t 'Separate data folder' 'Cartella dati separata'): $DATI"
-mkdir -p "$DATI" "$MOTORE" "$HOME/Applications"
+mkdir -p "$DATI" "$APPS" "$HOME/Applications" "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # ── 2. Icon recoloring tool (used now and after every Claude update) ────────
-cat > "$MOTORE/colora.js" <<'EOF'
+COLORA="$APP/Contents/Resources/colora.js"
+cat > "$COLORA" <<'EOF'
 ObjC.import('AppKit');
 ObjC.import('CoreImage');
 
@@ -339,13 +454,33 @@ EOF
 
 # ── 3. Launcher app ──────────────────────────────────────────────────────────
 echo "→ $(t 'Creating the app' "Creo l'app"): $APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cat > "$APP/Contents/Resources/config" <<EOF
+SRC=$CLAUDE
+COPIA=$COPIA
+DATI=$DATI
+NOME=$NOME
+GRADI=$GRADI
+COLORA=$COLORA
+EOF
 
 LANCIATORE="$APP/Contents/MacOS/avvia"
-{
-  echo '#!/bin/bash'
-  printf 'SRC=%q\nMOTORE=%q\nDATI=%q\nNOME=%q\nGRADI=%q\n' "$CLAUDE" "$MOTORE" "$DATI" "$NOME" "$GRADI"
-  cat <<'EOF'
+cat > "$LANCIATORE" <<'EOF'
+#!/bin/bash
+CFG="$(cd "$(dirname "$0")/.." && pwd)/Resources/config"
+kv() {
+  local k v
+  while IFS='=' read -r k v || [ -n "${k-}" ]; do
+    if [ "$k" = "$1" ]; then
+      printf '%s' "$v"
+      return 0
+    fi
+  done < "$CFG"
+}
+SRC="$(kv SRC)"
+COPIA="$(kv COPIA)"
+DATI="$(kv DATI)"
+GRADI="$(kv GRADI)"
+COLORA="$(kv COLORA)"
 
 # No color: launch Claude directly with the separate data folder.
 if [ -z "$GRADI" ]; then
@@ -354,10 +489,9 @@ fi
 
 # With color: launch a copy of Claude that carries the colored icon,
 # so the icon stays colored in the Dock while the app is running.
-COPIA="$MOTORE/$NOME.app"
 version() { defaults read "$1/Contents/Info" CFBundleShortVersionString 2>/dev/null; }
 
-# Fixed-string match: pgrep -f is a regex, and parentheses in the path break it.
+# Fixed-string match: a regex would break on parentheses in the path.
 # Ignore the grep process itself so a self-match cannot block a rebuild.
 if ! ps -axo command= | grep -F -- "$COPIA/Contents/MacOS/" | grep -qvF -- grep; then
   if [ ! -d "$COPIA" ] || [ "$(version "$SRC")" != "$(version "$COPIA")" ] || [ ! -e "$COPIA/Icon"$'\r' ]; then
@@ -366,7 +500,7 @@ if ! ps -axo command= | grep -F -- "$COPIA/Contents/MacOS/" | grep -qvF -- grep;
     # "cp -c" makes an APFS clone: instant and no extra disk space.
     cp -cR "$SRC" "$COPIA" 2>/dev/null || { rm -rf "$COPIA"; cp -R "$SRC" "$COPIA"; }
     xattr -dr com.apple.quarantine "$COPIA" 2>/dev/null
-    osascript -l JavaScript "$MOTORE/colora.js" "$SRC" "$COPIA" "$GRADI" >/dev/null 2>&1
+    osascript -l JavaScript "$COLORA" "$SRC" "$COPIA" "$GRADI" >/dev/null 2>&1
   fi
 fi
 
@@ -376,7 +510,6 @@ else
   exec open -n -a "$SRC" --args --user-data-dir="$DATI"
 fi
 EOF
-} > "$LANCIATORE"
 chmod +x "$LANCIATORE"
 
 ICONA=$(defaults read "$CLAUDE/Contents/Info" CFBundleIconFile 2>/dev/null || echo "")
@@ -405,9 +538,7 @@ EOF
 # ── 4. Colored icon on the launcher (the copy gets it on first launch) ───────
 if [ -n "$GRADI" ]; then
   echo "→ $(t "Coloring the icon: $COLORE" "Coloro l'icona: $COLORE")"
-  # An older copy (previous install) will be rebuilt on next launch.
-  rm -rf -- "$MOTORE/$NOME.app"
-  ESITO=$(osascript -l JavaScript "$MOTORE/colora.js" "$CLAUDE" "$APP" "$GRADI" 2>&1 || true)
+  ESITO=$(osascript -l JavaScript "$COLORA" "$CLAUDE" "$APP" "$GRADI" 2>&1 || true)
   if [ "$ESITO" != "ok" ]; then
     t "⚠️  Colored icon not applied ($ESITO). The app still works, with the regular icon." \
       "⚠️  Icona colorata non applicata ($ESITO). L'app funziona lo stesso, con l'icona normale."
@@ -416,7 +547,7 @@ fi
 
 # ── 5. Register the new app with macOS ───────────────────────────────────────
 touch "$APP"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true
+launch_register -f "$APP"
 restart_dock
 
 echo ""

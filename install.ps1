@@ -182,7 +182,9 @@ function Test-SafeDataPath([string]$path) {
     } catch {}
   }
   # Short paths (C:\Users\NAME~1\AppData\Roaming\...) still contain AppData\Roaming.
-  if (-not $underAppData -and $norm -notlike "*\AppData\Roaming\*" -and $norm -notlike "*\ClaudeMultiAccount\*") {
+  # MSIX can redirect the same folder under Packages\...\LocalCache\Roaming.
+  $underVirtual = $norm -like "*\Packages\AnthropicPBC.Claude_*\LocalCache\Roaming\*"
+  if (-not $underAppData -and -not $underVirtual -and $norm -notlike "*\AppData\Roaming\*" -and $norm -notlike "*\ClaudeMultiAccount\*") {
     return $false
   }
   return $true
@@ -238,6 +240,28 @@ function Test-DataInUse([string]$path) {
   return $false
 }
 
+# MSIX may redirect %APPDATA%\<relative> to Packages\AnthropicPBC.Claude_*\LocalCache\Roaming\<relative>.
+function Get-VirtualizedDataDirs([string]$dataPath) {
+  $found = New-Object System.Collections.Generic.List[string]
+  if ([string]::IsNullOrWhiteSpace($dataPath)) { return @() }
+  if ([string]::IsNullOrEmpty($env:APPDATA) -or [string]::IsNullOrEmpty($env:LOCALAPPDATA)) { return @() }
+  try {
+    $app = [IO.Path]::GetFullPath($env:APPDATA).TrimEnd('\', '/')
+    $full = [IO.Path]::GetFullPath($dataPath).TrimEnd('\', '/')
+  } catch { return @() }
+  $sep = [IO.Path]::DirectorySeparatorChar
+  if (-not $full.StartsWith($app + $sep, [StringComparison]::OrdinalIgnoreCase)) { return @() }
+  $relative = $full.Substring(($app + $sep).Length)
+  if ([string]::IsNullOrWhiteSpace($relative) -or $relative.Contains('..')) { return @() }
+  $packages = Join-Path $env:LOCALAPPDATA "Packages"
+  if (-not (Test-Path -LiteralPath $packages)) { return @() }
+  foreach ($dir in @(Get-ChildItem -LiteralPath $packages -Directory -Filter "AnthropicPBC.Claude_*" -ErrorAction SilentlyContinue)) {
+    $candidate = Join-Path $dir.FullName (Join-Path "LocalCache" (Join-Path "Roaming" $relative))
+    if (Test-Path -LiteralPath $candidate) { [void]$found.Add($candidate) }
+  }
+  return @($found)
+}
+
 $folders = @()
 $desktop = [Environment]::GetFolderPath("Desktop")
 if (-not [string]::IsNullOrEmpty($desktop)) { $folders += $desktop }
@@ -270,9 +294,13 @@ foreach ($folder in $folders) {
 }
 
 $dati = if ($existingData) { $existingData } else { $newData }
+$virtualDirs = @()
+foreach ($p in @($dati, $newData)) {
+  foreach ($v in @(Get-VirtualizedDataDirs $p)) { $virtualDirs += $v }
+}
 
 if ($Uninstall) {
-  foreach ($candidate in @($dati, $newData)) {
+  foreach ($candidate in @($dati, $newData) + $virtualDirs) {
     if (Test-DataInUse $candidate) {
       Write-Host (T "`"$Nome`" is still open. Close it (all its windows, and the tray icon) and run the command again. Nothing was changed." "`"$Nome`" è ancora aperto. Chiudilo (tutte le finestre e l'icona vicino all'orologio) e rilancia il comando. Non ho modificato nulla.") -ForegroundColor Red
       return
@@ -308,7 +336,7 @@ if ($Uninstall) {
   }
 
   $dataDirs = New-Object System.Collections.Generic.List[string]
-  foreach ($candidate in @($dati, $newData)) {
+  foreach ($candidate in @($dati, $newData) + $virtualDirs) {
     if (-not (Test-SafeDataPath $candidate)) { continue }
     if (-not (Test-Path -LiteralPath $candidate)) { continue }
     $full = [IO.Path]::GetFullPath($candidate).TrimEnd('\', '/')
@@ -319,7 +347,9 @@ if ($Uninstall) {
     # Old layout only if the shortcut pointed there. The new folder is always ours.
     $isNew = [string]::Equals($full, ([IO.Path]::GetFullPath($newData).TrimEnd('\', '/')), [StringComparison]::OrdinalIgnoreCase)
     $pointed = $existingData -and [string]::Equals($full, ([IO.Path]::GetFullPath($existingData).TrimEnd('\', '/')), [StringComparison]::OrdinalIgnoreCase)
-    if (-not $seen -and ($isNew -or $pointed)) { [void]$dataDirs.Add($full) }
+    $normFull = $full.Replace('/', '\')
+    $isVirtual = $normFull -like "*\Packages\AnthropicPBC.Claude_*\LocalCache\Roaming\*"
+    if (-not $seen -and ($isNew -or $pointed -or $isVirtual)) { [void]$dataDirs.Add($full) }
   }
 
   if ($dataDirs.Count -gt 0) {
