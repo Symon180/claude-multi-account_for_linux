@@ -14,6 +14,7 @@ Scegli nome e colore, copia il comando e incollalo.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash
 ```
+Claude Desktop deve già essere in `/Applications` (l'app scaricata da claude.ai/download).
 
 **Windows** – apri PowerShell e incolla:
 ```powershell
@@ -21,6 +22,20 @@ irm https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/insta
 ```
 
 Lo script chiede il nome dell'app e il colore dell'icona (blu, verde, viola, rosa, azzurro, giallo, nessuno). Gli script parlano italiano se il computer è impostato in italiano.
+
+Il nome viene ripulito dagli spazi all'inizio e alla fine. Non può essere vuoto, non può essere `Claude` o `AnthropicClaude`, e deve contenere almeno una lettera o un numero. Solo lettere, numeri, spazi, `-` e `_`.
+
+Con nome e colore già scelti:
+
+**Mac**
+```bash
+curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash -s -- "Claude 2" blue
+```
+
+**Windows**
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.ps1))) "Claude 2" blue
+```
 
 ## Il primo accesso (importante)
 
@@ -31,14 +46,29 @@ In alternativa: chiudi del tutto il Claude principale prima di accedere.
 
 Claude Desktop accetta l'opzione `--user-data-dir`, che indica dove salvare login e impostazioni. La nuova app avvia lo stesso Claude con una cartella diversa, quindi le due istanze non si vedono e restano loggate ognuna con il suo account. Gli aggiornamenti di Claude valgono per entrambe.
 
-- **Mac:** l'app viene creata in `~/Applications`, i dati in `~/Library/Application Support/<nome>`. Per avere l'icona colorata anche nel Dock mentre l'app è aperta, viene usata una copia "clone" di Claude.app in `~/Library/Application Support/<nome> (app)`: su disco APFS non occupa spazio in più e viene ricreata da sola quando Claude si aggiorna.
-- **Windows:** collegamenti sul Desktop e nel menu Start, dati in `%APPDATA%\<nome>`. Serve Claude installato da claude.ai/download (non dal Microsoft Store).
+- **Mac:** l'app viene creata in `~/Applications`. Login e impostazioni stanno in `~/Library/Application Support/ClaudeMultiAccount/<nome>/`. Per avere l'icona colorata anche nel Dock mentre l'app è aperta, una copia "clone" APFS di Claude.app sta in `~/Library/Application Support/ClaudeMultiAccount/<nome>/app/`: su disco APFS non occupa spazio in più e viene ricreata quando Claude si aggiorna, mai mentre quella copia è in esecuzione. Il Dock si riavvia per un attimo, così compare la nuova icona. Se c'è già un launcher di una versione precedente di questo strumento, la sua cartella dati viene conservata e resti loggato.
+- **Windows:** collegamenti sul Desktop e nel menu Start. Dati in `%APPDATA%\ClaudeMultiAccount\<nome>`. Icone colorate in `%LOCALAPPDATA%\ClaudeMultiAccount`. Serve Claude installato da claude.ai/download (non dal Microsoft Store). Un collegamento più vecchio continua a usare la cartella dati a cui punta già.
+
+## Disinstallazione
+
+Chiudi prima la seconda app (su Mac, Cmd+Q). Lo script chiede conferma nel terminale prima di cancellare la cartella dati, perché lì c'è il login. Eseguirlo di nuovo quando è già tutto rimosso non fa nulla.
+
+**Mac**
+```bash
+curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash -s -- --uninstall "Claude 2"
+```
+Rimuove `~/Applications/<nome>.app` solo se è un launcher di questo strumento, la cartella dati e la copia sotto `ClaudeMultiAccount/<nome>`, e le vecchie cartelle `~/Library/Application Support/<nome>` e `~/Library/Application Support/<nome> (app)` se quel launcher puntava lì. Il Dock si riavvia per un attimo. Se un'app con quel nome non è nostra, lo script si ferma e non cancella nulla.
+
+**Windows**
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.ps1))) -Uninstall "Claude 2"
+```
+Al posto di `-Uninstall` si può passare `--uninstall` come primo argomento. Rimuove i collegamenti su Desktop e menu Start solo se avviano `Update.exe` di AnthropicClaude con `--user-data-dir`, la cartella dati, il file `.ico` e `%LOCALAPPDATA%\ClaudeMultiAccount` se resta vuota. Se un collegamento con quel nome non è nostro, lo script si ferma e non cancella nulla.
 
 ## Limiti
 
 - **Windows:** con l'app aperta, la barra delle applicazioni mostra l'icona normale di Claude; quella colorata compare sul collegamento.
 - **Mac:** dopo un aggiornamento di Claude, il primo avvio di "Claude 2" richiede qualche secondo in più perché la copia viene ricreata.
-- Per rimuovere tutto basta cancellare l'app (o i collegamenti) e le cartelle dati.
 
 ## Note
 
