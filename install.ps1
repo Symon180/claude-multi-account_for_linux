@@ -17,8 +17,12 @@
 #  Colors: blue, green, purple, pink, cyan, yellow, none
 #          (Italian names work too: blu, verde, viola, rosa, azzurro, giallo, nessuno)
 #
+#  Works with both kinds of Claude install on Windows:
+#   - the Windows app package (AnthropicPBC.Claude), used by recent versions;
+#   - the older installer in %LOCALAPPDATA%\AnthropicClaude.
+#
 #  Data: %APPDATA%\ClaudeMultiAccount\<name>
-#  Icons: %LOCALAPPDATA%\ClaudeMultiAccount
+#  Icons and launcher: %LOCALAPPDATA%\ClaudeMultiAccount
 #
 #  FIRST SIGN-IN – IMPORTANT:
 #    In the new window do NOT use "Continue with Google". Type your email,
@@ -49,6 +53,9 @@ $it = (Get-UICulture).TwoLetterISOLanguageName -eq "it"
 function T([string]$en, [string]$itText) { if ($it) { $itText } else { $en } }
 
 # ── Find Claude ──────────────────────────────────────────────────────────────
+# "squirrel": older installer in %LOCALAPPDATA%\AnthropicClaude (launched via Update.exe).
+# "msix":     Windows app package AnthropicPBC.Claude (launched by its app ID).
+$mode = $null
 $base = $null
 if (-not [string]::IsNullOrEmpty($env:LOCALAPPDATA)) {
   $base = Join-Path $env:LOCALAPPDATA "AnthropicClaude"
@@ -56,24 +63,42 @@ if (-not [string]::IsNullOrEmpty($env:LOCALAPPDATA)) {
 $update = $null
 if ($base) { $update = Join-Path $base "Update.exe" }
 $exe = $null
+$aumid = $null
+$pkg = $null
 if ($update -and (Test-Path -LiteralPath $update)) {
   $exe = Get-ChildItem -LiteralPath $base -Directory -Filter "app-*" -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending |
     ForEach-Object { Join-Path $_.FullName "claude.exe" } |
     Where-Object { Test-Path -LiteralPath $_ } |
     Select-Object -First 1
+  if ($exe) { $mode = "squirrel" }
 }
-if (-not $Uninstall) {
-  if (-not $update -or -not (Test-Path -LiteralPath $update)) {
-    $where = if ($base) { $base } else { "%LOCALAPPDATA%\AnthropicClaude" }
-    Write-Host (T "Claude Desktop not found in $where" "Non trovo Claude Desktop in $where") -ForegroundColor Red
-    Write-Host (T "Install it from claude.ai/download (Windows version) and try again." "Installalo da claude.ai/download (versione per Windows) e riprova.")
-    return
+if (-not $mode) {
+  try {
+    $pkg = Get-AppxPackage -Name "AnthropicPBC.Claude" -ErrorAction SilentlyContinue |
+      Sort-Object { [version]$_.Version } -Descending |
+      Select-Object -First 1
+  } catch { $pkg = $null }
+  if ($pkg) {
+    try {
+      $manifest = Get-AppxPackageManifest -Package $pkg.PackageFullName
+      $appId = @($manifest.Package.Applications.Application)[0].Id
+      if ($appId) {
+        $aumid = "$($pkg.PackageFamilyName)!$appId"
+        $mode = "msix"
+        $exe = Join-Path $pkg.InstallLocation "app\Claude.exe"
+        if (-not (Test-Path -LiteralPath $exe)) {
+          $exe = Get-ChildItem -LiteralPath $pkg.InstallLocation -Recurse -Filter "Claude.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+        }
+      }
+    } catch { $mode = $null }
   }
-  if (-not $exe) {
-    Write-Host (T "No claude.exe found under $base (no app-* folder)." "Nessun claude.exe in $base (nessuna cartella app-*).") -ForegroundColor Red
-    return
-  }
+}
+if (-not $Uninstall -and -not $mode) {
+  Write-Host (T "Claude Desktop not found on this PC." "Non trovo Claude Desktop su questo PC.") -ForegroundColor Red
+  Write-Host (T "Install it from claude.ai/download (Windows version), open it once, then try again." "Installalo da claude.ai/download (versione per Windows), aprilo una volta e riprova.")
+  return
 }
 
 # ── Name and color ───────────────────────────────────────────────────────────
@@ -167,6 +192,9 @@ function Test-OurLauncher($lnk) {
   $target = [string]$lnk.TargetPath
   $work = [string]$lnk.WorkingDirectory
   $arguments = [string]$lnk.Arguments
+  # Package install: PowerShell running our launch.ps1 with -UserDataDir.
+  if ([IO.Path]::GetFileName($target) -ieq "powershell.exe" -and
+      $arguments -like "*\ClaudeMultiAccount\launch.ps1*" -and $arguments -like "*-UserDataDir*") { return $true }
   if ($arguments -notlike "*--user-data-dir=*") { return $false }
   if ([IO.Path]::GetFileName($target) -ne "Update.exe") { return $false }
   $targetNorm = $target.Replace("/", "\")
@@ -177,6 +205,8 @@ function Test-OurLauncher($lnk) {
 }
 
 function Get-LauncherDataDir([string]$arguments) {
+  $m = [regex]::Match($arguments, '-UserDataDir\s+"([^"]*)"')
+  if ($m.Success) { return $m.Groups[1].Value }
   $m = [regex]::Match($arguments, '--process-start-args\s+"--user-data-dir=([^"]*)"')
   if ($m.Success) { return $m.Groups[1].Value }
   $m = [regex]::Match($arguments, '--user-data-dir="([^"]*)"')
@@ -184,6 +214,28 @@ function Get-LauncherDataDir([string]$arguments) {
   $m = [regex]::Match($arguments, '--user-data-dir=([^\s"]+)')
   if ($m.Success) { return $m.Groups[1].Value }
   return $null
+}
+
+# True if a Claude window is running with this data folder.
+function Test-DataInUse([string]$path) {
+  if ([string]::IsNullOrWhiteSpace($path)) { return $false }
+  $needles = New-Object System.Collections.Generic.List[string]
+  try { [void]$needles.Add([IO.Path]::GetFullPath($path).TrimEnd('\', '/')) } catch {}
+  try {
+    if (Test-Path -LiteralPath $path) {
+      [void]$needles.Add((New-Object -ComObject Scripting.FileSystemObject).GetFolder($path).ShortPath)
+    }
+  } catch {}
+  try {
+    $procs = Get-CimInstance Win32_Process -Filter "Name='claude.exe' OR Name='Claude.exe'" -ErrorAction SilentlyContinue
+  } catch { return $false }
+  foreach ($proc in @($procs)) {
+    $cmd = [string]$proc.CommandLine
+    foreach ($n in $needles) {
+      if ($n -and $cmd.IndexOf($n, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    }
+  }
+  return $false
 }
 
 $folders = @()
@@ -220,6 +272,12 @@ foreach ($folder in $folders) {
 $dati = if ($existingData) { $existingData } else { $newData }
 
 if ($Uninstall) {
+  foreach ($candidate in @($dati, $newData)) {
+    if (Test-DataInUse $candidate) {
+      Write-Host (T "`"$Nome`" is still open. Close it (all its windows, and the tray icon) and run the command again. Nothing was changed." "`"$Nome`" è ancora aperto. Chiudilo (tutte le finestre e l'icona vicino all'orologio) e rilancia il comando. Non ho modificato nulla.") -ForegroundColor Red
+      return
+    }
+  }
   $removed = $false
   foreach ($lnkPath in $lnkPaths) {
     Remove-Item -LiteralPath $lnkPath -Force
@@ -239,6 +297,11 @@ if ($Uninstall) {
     $iconRoot = [IO.Path]::GetFullPath($iconFolder).TrimEnd('\', '/')
     $expected = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "ClaudeMultiAccount")).TrimEnd('\', '/')
     $left = @(Get-ChildItem -Force -LiteralPath $iconFolder -ErrorAction SilentlyContinue)
+    # The shared launcher stays while other shortcuts may use it (each one has its own .ico).
+    if ($left.Count -eq 1 -and $left[0].Name -ieq "launch.ps1") {
+      Remove-Item -LiteralPath $left[0].FullName -Force
+      $left = @()
+    }
     if ($left.Count -eq 0 -and [string]::Equals($iconRoot, $expected, [StringComparison]::OrdinalIgnoreCase)) {
       Remove-Item -LiteralPath $iconFolder -Force
     }
@@ -306,14 +369,38 @@ function HslToRgb([double]$h, [double]$s, [double]$l) {
 $iconPath = $null
 New-Item -ItemType Directory -Force -Path $iconFolder | Out-Null
 
-if ($gradi -ne 0) {
+# With the package install the shortcut can't point at Claude.exe (its folder changes
+# at every update), so an .ico is always written, colored or not.
+if ($gradi -ne 0 -or $mode -eq "msix") {
   try {
     Add-Type -AssemblyName System.Drawing
-    Write-Host "-> $(T "Coloring the icon: $Colore (a few seconds...)" "Coloro l'icona: $Colore (qualche secondo...)")"
-    $ico = Join-Path $base "app.ico"
-    if (Test-Path -LiteralPath $ico) {
-      $bmp = (New-Object System.Drawing.Icon($ico, 256, 256)).ToBitmap()
-    } else {
+    if ($gradi -ne 0) {
+      Write-Host "-> $(T "Coloring the icon: $Colore (a few seconds...)" "Coloro l'icona: $Colore (qualche secondo...)")"
+    }
+    $bmp = $null
+    if ($mode -eq "squirrel") {
+      $ico = Join-Path $base "app.ico"
+      if (Test-Path -LiteralPath $ico) {
+        $bmp = (New-Object System.Drawing.Icon($ico, 256, 256)).ToBitmap()
+      }
+    } elseif ($pkg) {
+      # Largest square logo shipped in the package (e.g. Square44x44Logo.targetsize-256.png).
+      $logo = Get-ChildItem -LiteralPath $pkg.InstallLocation -Recurse -Filter "*.png" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'targetsize-256' -and $_.Name -notmatch 'altform|contrast' } |
+        Sort-Object Length -Descending | Select-Object -First 1
+      if (-not $logo) {
+        $logo = Get-ChildItem -LiteralPath $pkg.InstallLocation -Recurse -Filter "*.png" -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -match 'Square150x150|Square44x44|StoreLogo' -and $_.Name -notmatch 'contrast' } |
+          Sort-Object Length -Descending | Select-Object -First 1
+      }
+      if ($logo) {
+        $src = [System.Drawing.Image]::FromFile($logo.FullName)
+        $size = [Math]::Min(256, [Math]::Max($src.Width, $src.Height))
+        $bmp = New-Object System.Drawing.Bitmap($src, $size, $size)
+        $src.Dispose()
+      }
+    }
+    if (-not $bmp) {
       $bmp = [System.Drawing.Icon]::ExtractAssociatedIcon($exe).ToBitmap()
     }
     $out = New-Object System.Drawing.Bitmap($bmp.Width, $bmp.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -357,12 +444,58 @@ if ($null -eq $shell) {
     return
   }
 }
+if ($mode -eq "msix") {
+  # Small launcher: asks Windows to start the Claude app by its app ID and passes
+  # it the separate data folder. Runs hidden from the shortcut.
+  $launcher = Join-Path $iconFolder "launch.ps1"
+  $launcherCode = @'
+# Claude Multi Account - launcher for the Claude Windows app package.
+param([string]$Aumid, [string]$UserDataDir)
+try {
+  Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+[ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICmaActivationManager {
+  void ActivateApplication([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+                           [MarshalAs(UnmanagedType.LPWStr)] string arguments,
+                           int options, out uint processId);
+}
+[ComImport, Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
+public class CmaActivationManagerClass {}
+public static class CmaLauncher {
+  public static uint Start(string aumid, string args) {
+    var m = (ICmaActivationManager)new CmaActivationManagerClass();
+    uint pid;
+    m.ActivateApplication(aumid, args, 0, out pid);
+    return pid;
+  }
+}
+"@
+  New-Item -ItemType Directory -Force -Path $UserDataDir | Out-Null
+  [void][CmaLauncher]::Start($Aumid, "--user-data-dir=`"$UserDataDir`"")
+} catch {
+  Add-Type -AssemblyName System.Windows.Forms
+  [void][System.Windows.Forms.MessageBox]::Show("Claude Multi Account: $($_.Exception.Message)", "Claude Multi Account")
+}
+'@
+  [IO.File]::WriteAllText($launcher, $launcherCode, (New-Object System.Text.UTF8Encoding($true)))
+  $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+}
+
 foreach ($folder in $folders) {
   if ([string]::IsNullOrEmpty($folder)) { continue }
   $lnk = $shell.CreateShortcut((Join-Path $folder "$Nome.lnk"))
-  $lnk.TargetPath = $update
-  $lnk.Arguments = "--processStart claude.exe --process-start-args `"--user-data-dir=$datiSicuro`""
-  $lnk.WorkingDirectory = $base
+  if ($mode -eq "msix") {
+    $lnk.TargetPath = $psExe
+    $lnk.Arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -Aumid `"$aumid`" -UserDataDir `"$dati`""
+    $lnk.WorkingDirectory = $iconFolder
+    $lnk.WindowStyle = 7
+  } else {
+    $lnk.TargetPath = $update
+    $lnk.Arguments = "--processStart claude.exe --process-start-args `"--user-data-dir=$datiSicuro`""
+    $lnk.WorkingDirectory = $base
+  }
   $lnk.IconLocation = "$iconPath,0"
   $lnk.Description = (T "Claude with a second account" "Claude con un secondo account")
   $lnk.Save()

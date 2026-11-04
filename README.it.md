@@ -47,7 +47,7 @@ In alternativa: chiudi del tutto il Claude principale prima di accedere.
 Claude Desktop accetta l'opzione `--user-data-dir`, che indica dove salvare login e impostazioni. La nuova app avvia lo stesso Claude con una cartella diversa, quindi le due istanze non si vedono e restano loggate ognuna con il suo account. Gli aggiornamenti di Claude valgono per entrambe.
 
 - **Mac:** l'app viene creata in `~/Applications`. Login e impostazioni stanno in `~/Library/Application Support/ClaudeMultiAccount/<nome>/`. Per avere l'icona colorata anche nel Dock mentre l'app è aperta, una copia "clone" APFS di Claude.app sta in `~/Library/Application Support/ClaudeMultiAccount/<nome>/app/`: su disco APFS non occupa spazio in più e viene ricreata quando Claude si aggiorna, mai mentre quella copia è in esecuzione. Il Dock si riavvia per un attimo, così compare la nuova icona. Se c'è già un launcher di una versione precedente di questo strumento, la sua cartella dati viene conservata e resti loggato.
-- **Windows:** collegamenti sul Desktop e nel menu Start. Dati in `%APPDATA%\ClaudeMultiAccount\<nome>`. Icone colorate in `%LOCALAPPDATA%\ClaudeMultiAccount`. Serve Claude installato da claude.ai/download (non dal Microsoft Store). Un collegamento più vecchio continua a usare la cartella dati a cui punta già.
+- **Windows:** collegamenti sul Desktop e nel menu Start. Dati in `%APPDATA%\ClaudeMultiAccount\<nome>`. Icone colorate in `%LOCALAPPDATA%\ClaudeMultiAccount`. Funziona con entrambi i tipi di installazione di Claude: il pacchetto di Windows (`AnthropicPBC.Claude`, usato dalle versioni recenti), che il collegamento avvia tramite il suo ID con un piccolo launcher nascosto (`launch.ps1` nella stessa cartella), e il vecchio installer in `%LOCALAPPDATA%\AnthropicClaude`. Un collegamento più vecchio continua a usare la cartella dati a cui punta già.
 
 ## Disinstallazione
 
@@ -63,7 +63,7 @@ Rimuove `~/Applications/<nome>.app` solo se è un launcher di questo strumento, 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.ps1))) -Uninstall "Claude 2"
 ```
-Al posto di `-Uninstall` si può passare `--uninstall` come primo argomento. Rimuove i collegamenti su Desktop e menu Start solo se avviano `Update.exe` di AnthropicClaude con `--user-data-dir`, la cartella dati, il file `.ico` e `%LOCALAPPDATA%\ClaudeMultiAccount` se resta vuota. Se un collegamento con quel nome non è nostro, lo script si ferma e non cancella nulla.
+Al posto di `-Uninstall` si può passare `--uninstall` come primo argomento. Chiudi prima il secondo Claude: se è ancora aperto lo script si ferma e non modifica nulla. Rimuove i collegamenti su Desktop e menu Start solo se sono nostri (avviano `Update.exe` di AnthropicClaude con `--user-data-dir`, oppure il `launch.ps1` di questo strumento), la cartella dati, il file `.ico` e `%LOCALAPPDATA%\ClaudeMultiAccount` (con il launcher) se nessun altro collegamento lo usa. Se un collegamento con quel nome non è nostro, lo script si ferma e non cancella nulla.
 
 ## Limiti
 
