@@ -1,0 +1,56 @@
+name: Bug report / Segnala un problema
+description: Something doesn't work as expected. / Qualcosa non funziona come previsto.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please remove anything private from the output before posting.
+        Grazie per la segnalazione! Togli eventuali dati privati dall'output prima di pubblicarlo.
+  - type: dropdown
+    id: os
+    attributes:
+      label: System / Sistema
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: System version / Versione del sistema
+      placeholder: "e.g. macOS 15.1, Windows 11 24H2"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How Claude Desktop is installed / Come è installato Claude Desktop
+      options:
+        - claude.ai/download
+        - Microsoft Store
+        - Company / IT deployment
+        - Not sure / Non so
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran / Comando eseguito
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Full output of the script / Output completo dello script
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected / Cosa è successo e cosa ti aspettavi
+    validations:
+      required: true
