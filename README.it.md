@@ -2,6 +2,10 @@
 
 🇬🇧 [English version](README.md)
 
+**Basta uscire e rientrare per passare dall'account Claude personale a quello di lavoro.**
+
+![Due finestre di Claude Desktop affiancate, collegate ad account diversi, con icone di colore diverso nel Dock](assets/hero.png)
+
 Usa **due account di Claude Desktop insieme**, ognuno con il suo login, su Mac o Windows.
 Lo script crea una seconda app (es. "Claude 2") che avvia Claude Desktop con una cartella dati separata, e le dà un'icona di un altro colore. L'app Claude originale non viene modificata.
 

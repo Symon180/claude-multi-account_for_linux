@@ -2,6 +2,10 @@
 
 🇮🇹 [Versione italiana](README.it.md)
 
+**Stop signing out to switch between your personal and work Claude accounts.**
+
+![Two Claude Desktop windows side by side, signed in to different accounts, with differently colored icons in the Dock](assets/hero.png)
+
 Use **two Claude Desktop accounts at the same time**, each with its own sign-in, on Mac or Windows.
 The script creates a second app (e.g. "Claude 2") that launches Claude Desktop with a separate data folder, and gives it an icon in a different color. The original Claude app is never modified.
 
