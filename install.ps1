@@ -18,7 +18,8 @@
 #          (Italian names work too: blu, verde, viola, rosa, azzurro, giallo, nessuno)
 #
 #  Works with both kinds of Claude install on Windows:
-#   - the Windows app package (AnthropicPBC.Claude), used by recent versions;
+#   - the Windows app package, used by recent versions (named "AnthropicPBC.Claude"
+#     or just "Claude", depending on how it was installed);
 #   - the older installer in %LOCALAPPDATA%\AnthropicClaude.
 #
 #  Data: %APPDATA%\ClaudeMultiAccount\<name>
@@ -54,7 +55,7 @@ function T([string]$en, [string]$itText) { if ($it) { $itText } else { $en } }
 
 # ── Find Claude ──────────────────────────────────────────────────────────────
 # "squirrel": older installer in %LOCALAPPDATA%\AnthropicClaude (launched via Update.exe).
-# "msix":     Windows app package AnthropicPBC.Claude (launched by its app ID).
+# "msix":     Windows app package "AnthropicPBC.Claude" or "Claude" (launched by its app ID).
 $mode = $null
 $base = $null
 if (-not [string]::IsNullOrEmpty($env:LOCALAPPDATA)) {
@@ -89,6 +90,19 @@ function Get-PackageInfoFromFullName([string]$fullName, [string]$root) {
     Version           = $ver
   }
 }
+# Package families of Claude Desktop seen so far (name_publisherId). The package
+# name alone is not enough: "Claude" could also be someone else's app.
+$claudeFamilies = @("AnthropicPBC.Claude_fnn82j28hfe8t", "Claude_pzs8sxrjxfjjc")
+function Test-ClaudePackage($info) {
+  if (-not $info) { return $false }
+  if ($claudeFamilies -contains $info.PackageFamilyName) { return $true }
+  # Unknown family with a Claude-like name: accept it only if Anthropic published it.
+  try {
+    [xml]$m = Get-Content -LiteralPath (Join-Path $info.InstallLocation "AppxManifest.xml") -Raw -ErrorAction Stop
+    $pub = [string]$m.Package.Identity.Publisher + " " + [string]$m.Package.Properties.PublisherDisplayName
+    return ($pub -match 'Anthropic')
+  } catch { return $false }
+}
 function Get-AppIdFromManifest([string]$root) {
   try {
     [xml]$m = Get-Content -LiteralPath (Join-Path $root "AppxManifest.xml") -Raw -ErrorAction Stop
@@ -100,21 +114,24 @@ if (-not $mode) {
   $found = @()
   # 1. Get-AppxPackage (Windows PowerShell)
   try {
-    foreach ($p in @(Get-AppxPackage -Name "AnthropicPBC.Claude" -ErrorAction Stop)) {
-      $found += [pscustomobject]@{
-        PackageFullName = $p.PackageFullName; PackageFamilyName = $p.PackageFamilyName
-        InstallLocation = $p.InstallLocation; Version = [version]$p.Version
+    foreach ($name in @("AnthropicPBC.Claude", "Claude")) {
+      foreach ($p in @(Get-AppxPackage -Name $name -ErrorAction Stop)) {
+        $info = [pscustomobject]@{
+          PackageFullName = $p.PackageFullName; PackageFamilyName = $p.PackageFamilyName
+          InstallLocation = $p.InstallLocation; Version = [version]$p.Version
+        }
+        if (Test-ClaudePackage $info) { $found += $info }
       }
     }
   } catch {}
   # 2. Registry list of the packages installed for this user (works in any PowerShell)
   if ($found.Count -eq 0) {
     $repo = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages"
-    foreach ($k in @(Get-ChildItem -LiteralPath $repo -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "AnthropicPBC.Claude_*" })) {
+    foreach ($k in @(Get-ChildItem -LiteralPath $repo -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "AnthropicPBC.Claude_*" -or $_.PSChildName -like "Claude_*" })) {
       $root = $null
       try { $root = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction Stop).PackageRootFolder } catch {}
       $info = Get-PackageInfoFromFullName $k.PSChildName $root
-      if ($info) { $found += $info }
+      if (Test-ClaudePackage $info) { $found += $info }
     }
   }
   # 3. The running Claude window (Claude must be open)
@@ -122,10 +139,10 @@ if (-not $mode) {
     foreach ($proc in @(Get-Process -Name "claude" -ErrorAction SilentlyContinue)) {
       $path = $null
       try { $path = $proc.Path } catch {}
-      if ($path -match '\\WindowsApps\\(AnthropicPBC\.Claude_[^\\]+)\\') {
+      if ($path -match '\\WindowsApps\\((?:AnthropicPBC\.)?Claude_[^\\]+)\\') {
         $root = $path.Substring(0, $path.IndexOf($Matches[1]) + $Matches[1].Length)
         $info = Get-PackageInfoFromFullName $Matches[1] $root
-        if ($info) { $found += $info }
+        if (Test-ClaudePackage $info) { $found += $info }
       }
     }
   }
@@ -144,7 +161,7 @@ if (-not $mode) {
   # 4. Start menu entry: gives the app ID directly.
   if (-not $aumid) {
     try {
-      $start = Get-StartApps -ErrorAction Stop | Where-Object { $_.AppID -like "AnthropicPBC.Claude_*!*" } | Select-Object -First 1
+      $start = Get-StartApps -ErrorAction Stop | Where-Object { $claudeFamilies -contains ($_.AppID -split '!')[0] } | Select-Object -First 1
       if ($start) { $aumid = $start.AppID }
     } catch {}
   }
@@ -249,7 +266,8 @@ function Test-SafeDataPath([string]$path) {
   }
   # Short paths (C:\Users\NAME~1\AppData\Roaming\...) still contain AppData\Roaming.
   # MSIX can redirect the same folder under Packages\...\LocalCache\Roaming.
-  $underVirtual = $norm -like "*\Packages\AnthropicPBC.Claude_*\LocalCache\Roaming\*"
+  $underVirtual = $false
+  foreach ($fam in $claudeFamilies) { if ($norm -like "*\Packages\$fam\LocalCache\Roaming\*") { $underVirtual = $true } }
   if (-not $underAppData -and -not $underVirtual -and $norm -notlike "*\AppData\Roaming\*" -and $norm -notlike "*\ClaudeMultiAccount\*") {
     return $false
   }
@@ -306,7 +324,7 @@ function Test-DataInUse([string]$path) {
   return $false
 }
 
-# MSIX may redirect %APPDATA%\<relative> to Packages\AnthropicPBC.Claude_*\LocalCache\Roaming\<relative>.
+# MSIX may redirect %APPDATA%\<relative> to Packages\<Claude family>\LocalCache\Roaming\<relative>.
 function Get-VirtualizedDataDirs([string]$dataPath) {
   $found = New-Object System.Collections.Generic.List[string]
   if ([string]::IsNullOrWhiteSpace($dataPath)) { return @() }
@@ -321,7 +339,7 @@ function Get-VirtualizedDataDirs([string]$dataPath) {
   if ([string]::IsNullOrWhiteSpace($relative) -or $relative.Contains('..')) { return @() }
   $packages = Join-Path $env:LOCALAPPDATA "Packages"
   if (-not (Test-Path -LiteralPath $packages)) { return @() }
-  foreach ($dir in @(Get-ChildItem -LiteralPath $packages -Directory -Filter "AnthropicPBC.Claude_*" -ErrorAction SilentlyContinue)) {
+  foreach ($dir in @(Get-ChildItem -LiteralPath $packages -Directory -ErrorAction SilentlyContinue | Where-Object { $claudeFamilies -contains $_.Name })) {
     $candidate = Join-Path $dir.FullName (Join-Path "LocalCache" (Join-Path "Roaming" $relative))
     if (Test-Path -LiteralPath $candidate) { [void]$found.Add($candidate) }
   }
@@ -414,7 +432,8 @@ if ($Uninstall) {
     $isNew = [string]::Equals($full, ([IO.Path]::GetFullPath($newData).TrimEnd('\', '/')), [StringComparison]::OrdinalIgnoreCase)
     $pointed = $existingData -and [string]::Equals($full, ([IO.Path]::GetFullPath($existingData).TrimEnd('\', '/')), [StringComparison]::OrdinalIgnoreCase)
     $normFull = $full.Replace('/', '\')
-    $isVirtual = $normFull -like "*\Packages\AnthropicPBC.Claude_*\LocalCache\Roaming\*"
+    $isVirtual = $false
+    foreach ($fam in $claudeFamilies) { if ($normFull -like "*\Packages\$fam\LocalCache\Roaming\*") { $isVirtual = $true } }
     if (-not $seen -and ($isNew -or $pointed -or $isVirtual)) { [void]$dataDirs.Add($full) }
   }
 
