@@ -14,7 +14,7 @@ Scegli nome e colore, copia il comando e incollalo.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash
 ```
-Claude Desktop deve già essere in `/Applications` (l'app scaricata da claude.ai/download).
+Claude Desktop (l'app scaricata da claude.ai/download) viene cercato in `/Applications`, poi in `~/Applications`, poi ovunque sul Mac con Spotlight. Per usare una copia precisa: `curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | CLAUDE_APP="/percorso/di/Claude.app" bash`
 
 **Windows** – apri PowerShell e incolla:
 ```powershell

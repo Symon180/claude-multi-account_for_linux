@@ -19,7 +19,9 @@
 #  Colors: blue, green, purple, pink, cyan, yellow, none
 #          (Italian names work too: blu, verde, viola, rosa, azzurro, giallo, nessuno)
 #
-#  Claude Desktop must be in /Applications.
+#  Claude Desktop is looked for in /Applications, then in ~/Applications, then
+#  anywhere on the Mac with Spotlight. To point at a specific copy:
+#    curl -fsSL .../install.sh | CLAUDE_APP="/path/to/Claude.app" bash
 #  Data: ~/Library/Application Support/ClaudeMultiAccount/<name>/
 #  Clone: ~/Library/Application Support/ClaudeMultiAccount/apps/<name>.app
 #  The Dock restarts for a moment so the icon updates.
@@ -301,16 +303,67 @@ do_uninstall() {
   fi
 }
 
-CLAUDE="/Applications/Claude.app"
+# Is this folder the real Claude Desktop (not one of our launchers or copies)?
+is_real_claude() {
+  local a="${1%/}" id=""
+  [ -d "$a/Contents" ] || return 1
+  case "$a" in
+    */ClaudeMultiAccount/*|*/.Trash/*|*" (app)/"*) return 1 ;;
+  esac
+  id=$(bundle_id "$a")
+  case "$id" in
+    local.claude-launcher.*|"") return 1 ;;
+    com.anthropic.claudefordesktop) return 0 ;;
+  esac
+  # Another id: accept it only for an app named exactly Claude.app published by Anthropic.
+  [ "$(basename "$a")" = "Claude.app" ] || return 1
+  case "$id" in
+    *anthropic*|*Anthropic*) return 0 ;;
+  esac
+  return 1
+}
+
+find_claude() {
+  local c=""
+  if [ -n "${CLAUDE_APP-}" ]; then
+    if [ -d "$CLAUDE_APP/Contents" ]; then printf '%s' "${CLAUDE_APP%/}"; fi
+    return 0
+  fi
+  for c in "/Applications/Claude.app" "$HOME/Applications/Claude.app"; do
+    if [ -d "$c/Contents" ] && ! app_is_ours "$c"; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  if command -v mdfind >/dev/null 2>&1; then
+    while IFS= read -r c; do
+      if is_real_claude "$c"; then
+        printf '%s' "$c"
+        return 0
+      fi
+    done < <( { mdfind "kMDItemCFBundleIdentifier == 'com.anthropic.claudefordesktop'" 2>/dev/null
+                mdfind "kMDItemFSName == 'Claude.app' && kMDItemContentType == 'com.apple.application-bundle'" 2>/dev/null; } )
+  fi
+  return 0
+}
+
+CLAUDE=""
 UNINSTALL=0
 if [ "${1-}" = "--uninstall" ]; then
   UNINSTALL=1
   shift
 fi
 
-if [ "$UNINSTALL" -eq 0 ] && [ ! -d "$CLAUDE" ]; then
-  die "❌ Claude not found in /Applications. Install Claude Desktop first from claude.ai/download" \
-    "❌ Non trovo Claude in /Applications. Installa prima Claude Desktop da claude.ai/download"
+if [ "$UNINSTALL" -eq 0 ]; then
+  CLAUDE=$(find_claude)
+  if [ -z "$CLAUDE" ]; then
+    if [ -n "${CLAUDE_APP-}" ]; then
+      die "❌ CLAUDE_APP does not point to an app: $CLAUDE_APP" "❌ CLAUDE_APP non indica un'app: $CLAUDE_APP"
+    fi
+    die "❌ Claude Desktop not found on this Mac. Install it from claude.ai/download and open it once." \
+      "❌ Non trovo Claude Desktop su questo Mac. Installalo da claude.ai/download e aprilo una volta."
+  fi
+  echo "→ Claude: $CLAUDE"
 fi
 
 # ── Name and color ───────────────────────────────────────────────────────────
@@ -477,6 +530,12 @@ kv() {
   done < "$CFG"
 }
 SRC="$(kv SRC)"
+# Claude moved since install: look in the usual places.
+if [ ! -d "$SRC" ]; then
+  for c in "/Applications/Claude.app" "$HOME/Applications/Claude.app"; do
+    if [ -d "$c" ]; then SRC="$c"; break; fi
+  done
+fi
 COPIA="$(kv COPIA)"
 DATI="$(kv DATI)"
 GRADI="$(kv GRADI)"
