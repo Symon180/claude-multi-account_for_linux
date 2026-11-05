@@ -77,3 +77,11 @@ Removes `~/Applications/<name>.app` only when it is this tool's launcher, the da
 ## Notes
 
 Unofficial tool, not affiliated with Anthropic. Use your own accounts: Claude's terms of service forbid sharing an account or using multiple accounts to get around limits or bans.
+
+## License
+
+[MIT](LICENSE) © Andrea Sportello
+
+---
+
+If this saved you some signing in and out, a ⭐ on the repository helps other people find it. Bugs and ideas are welcome in the [issues](https://github.com/andrea6687/claude-multi-account/issues).

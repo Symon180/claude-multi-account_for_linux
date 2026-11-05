@@ -77,3 +77,11 @@ Al posto di `-Uninstall` si può passare `--uninstall` come primo argomento. Chi
 ## Note
 
 Strumento non ufficiale, non affiliato ad Anthropic. Usa account tuoi: i termini d'uso di Claude vietano di condividere un account o di usare più account per aggirare limiti o blocchi.
+
+## Licenza
+
+[MIT](LICENSE) © Andrea Sportello
+
+---
+
+Se ti ha risparmiato qualche logout, una ⭐ al repository aiuta altre persone a trovarlo. Problemi e idee sono benvenuti nelle [issue](https://github.com/andrea6687/claude-multi-account/issues).
