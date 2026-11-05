@@ -73,31 +73,97 @@ if ($update -and (Test-Path -LiteralPath $update)) {
     Select-Object -First 1
   if ($exe) { $mode = "squirrel" }
 }
-if (-not $mode) {
+# The package can be found in several ways; each one is a fallback for the next,
+# because Get-AppxPackage fails in some PowerShell versions (e.g. PowerShell 7).
+function Get-PackageInfoFromFullName([string]$fullName, [string]$root) {
+  # Full name: Name_Version_Arch_ResourceId_PublisherId -> family: Name_PublisherId
+  $parts = $fullName.Split('_')
+  if ($parts.Count -lt 5) { return $null }
+  $ver = $null
+  try { $ver = [version]$parts[1] } catch { $ver = [version]"0.0" }
+  if (-not $root) { $root = Join-Path $env:ProgramFiles "WindowsApps\$fullName" }
+  [pscustomobject]@{
+    PackageFullName   = $fullName
+    PackageFamilyName = "$($parts[0])_$($parts[-1])"
+    InstallLocation   = $root
+    Version           = $ver
+  }
+}
+function Get-AppIdFromManifest([string]$root) {
   try {
-    $pkg = Get-AppxPackage -Name "AnthropicPBC.Claude" -ErrorAction SilentlyContinue |
-      Sort-Object { [version]$_.Version } -Descending |
-      Select-Object -First 1
-  } catch { $pkg = $null }
-  if ($pkg) {
-    try {
-      $manifest = Get-AppxPackageManifest -Package $pkg.PackageFullName
-      $appId = @($manifest.Package.Applications.Application)[0].Id
-      if ($appId) {
-        $aumid = "$($pkg.PackageFamilyName)!$appId"
-        $mode = "msix"
-        $exe = Join-Path $pkg.InstallLocation "app\Claude.exe"
-        if (-not (Test-Path -LiteralPath $exe)) {
-          $exe = Get-ChildItem -LiteralPath $pkg.InstallLocation -Recurse -Filter "Claude.exe" -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName
-        }
+    [xml]$m = Get-Content -LiteralPath (Join-Path $root "AppxManifest.xml") -Raw -ErrorAction Stop
+    return @($m.Package.Applications.Application)[0].Id
+  } catch { return $null }
+}
+
+if (-not $mode) {
+  $found = @()
+  # 1. Get-AppxPackage (Windows PowerShell)
+  try {
+    foreach ($p in @(Get-AppxPackage -Name "AnthropicPBC.Claude" -ErrorAction Stop)) {
+      $found += [pscustomobject]@{
+        PackageFullName = $p.PackageFullName; PackageFamilyName = $p.PackageFamilyName
+        InstallLocation = $p.InstallLocation; Version = [version]$p.Version
       }
-    } catch { $mode = $null }
+    }
+  } catch {}
+  # 2. Registry list of the packages installed for this user (works in any PowerShell)
+  if ($found.Count -eq 0) {
+    $repo = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages"
+    foreach ($k in @(Get-ChildItem -LiteralPath $repo -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "AnthropicPBC.Claude_*" })) {
+      $root = $null
+      try { $root = (Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction Stop).PackageRootFolder } catch {}
+      $info = Get-PackageInfoFromFullName $k.PSChildName $root
+      if ($info) { $found += $info }
+    }
+  }
+  # 3. The running Claude window (Claude must be open)
+  if ($found.Count -eq 0) {
+    foreach ($proc in @(Get-Process -Name "claude" -ErrorAction SilentlyContinue)) {
+      $path = $null
+      try { $path = $proc.Path } catch {}
+      if ($path -match '\\WindowsApps\\(AnthropicPBC\.Claude_[^\\]+)\\') {
+        $root = $path.Substring(0, $path.IndexOf($Matches[1]) + $Matches[1].Length)
+        $info = Get-PackageInfoFromFullName $Matches[1] $root
+        if ($info) { $found += $info }
+      }
+    }
+  }
+  # Keep only versions still on disk, newest first.
+  $pkg = $found | Where-Object { $_.InstallLocation -and (Test-Path -LiteralPath $_.InstallLocation) } |
+    Sort-Object Version -Descending | Select-Object -First 1
+  if (-not $pkg) { $pkg = $found | Sort-Object Version -Descending | Select-Object -First 1 }
+
+  if ($pkg) {
+    $appId = Get-AppIdFromManifest $pkg.InstallLocation
+    if (-not $appId) {
+      try { $appId = @((Get-AppxPackageManifest -Package $pkg.PackageFullName -ErrorAction Stop).Package.Applications.Application)[0].Id } catch {}
+    }
+    if ($appId) { $aumid = "$($pkg.PackageFamilyName)!$appId" }
+  }
+  # 4. Start menu entry: gives the app ID directly.
+  if (-not $aumid) {
+    try {
+      $start = Get-StartApps -ErrorAction Stop | Where-Object { $_.AppID -like "AnthropicPBC.Claude_*!*" } | Select-Object -First 1
+      if ($start) { $aumid = $start.AppID }
+    } catch {}
+  }
+  if ($aumid) {
+    $mode = "msix"
+    if ($pkg) {
+      $exe = Join-Path $pkg.InstallLocation "app\Claude.exe"
+      if (-not (Test-Path -LiteralPath $exe)) {
+        $exe = Get-ChildItem -LiteralPath $pkg.InstallLocation -Recurse -Filter "Claude.exe" -ErrorAction SilentlyContinue |
+          Select-Object -First 1 -ExpandProperty FullName
+      }
+    }
   }
 }
 if (-not $Uninstall -and -not $mode) {
   Write-Host (T "Claude Desktop not found on this PC." "Non trovo Claude Desktop su questo PC.") -ForegroundColor Red
   Write-Host (T "Install it from claude.ai/download (Windows version), open it once, then try again." "Installalo da claude.ai/download (versione per Windows), aprilo una volta e riprova.")
+  Write-Host (T "If Claude is installed: open it, leave it open and run the command again." "Se Claude è installato: aprilo, lascialo aperto e rilancia il comando.")
+  Write-Host "PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))" -ForegroundColor DarkGray
   return
 }
 
@@ -430,9 +496,10 @@ if ($gradi -ne 0 -or $mode -eq "msix") {
         $src.Dispose()
       }
     }
-    if (-not $bmp) {
+    if (-not $bmp -and $exe) {
       $bmp = [System.Drawing.Icon]::ExtractAssociatedIcon($exe).ToBitmap()
     }
+    if (-not $bmp) { throw (T "Claude icon not found" "icona di Claude non trovata") }
     $out = New-Object System.Drawing.Bitmap($bmp.Width, $bmp.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     for ($y = 0; $y -lt $bmp.Height; $y++) {
       for ($x = 0; $x -lt $bmp.Width; $x++) {
@@ -526,7 +593,7 @@ foreach ($folder in $folders) {
     $lnk.Arguments = "--processStart claude.exe --process-start-args `"--user-data-dir=$datiSicuro`""
     $lnk.WorkingDirectory = $base
   }
-  $lnk.IconLocation = "$iconPath,0"
+  if ($iconPath) { $lnk.IconLocation = "$iconPath,0" }
   $lnk.Description = (T "Claude with a second account" "Claude con un secondo account")
   $lnk.Save()
 }
