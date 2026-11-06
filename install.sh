@@ -205,6 +205,10 @@ dir_empty() {
   return 0
 }
 
+stop_agent() {
+  launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || launchctl unload "$AGENT_PLIST" 2>/dev/null || true
+}
+
 restart_dock() {
   echo "→ $(t 'The Dock will restart for a moment.' 'Il Dock si riavvierà per un attimo.')"
   killall Dock 2>/dev/null || true
@@ -236,6 +240,16 @@ do_uninstall() {
     existing_copia=$(launcher_setting "$APP" COPIA)
   fi
   require_not_running "$existing_copia" "$existing_motore"
+
+  stop_agent
+  if [ -f "$AGENT_PLIST" ]; then
+    rm -f -- "$AGENT_PLIST"
+    removed_any=1
+  fi
+  if [ -f "$LOGFILE" ]; then
+    rm -f -- "$LOGFILE"
+    rmdir -- "$PREFIX/logs" 2>/dev/null || true
+  fi
 
   if [ -e "$APP" ]; then
     rm_tree "$APP"
@@ -405,6 +419,9 @@ NEW_DATI="$PREFIX/$NOME"
 NEW_COPIA="$APPS/$NOME.app"
 OLD_NESTED="$PREFIX/$NOME/app"
 LEGACY_MOTORE="$HOME/Library/Application Support/$NOME (app)"
+AGENT_LABEL="local.claude-multi-account.$ID"
+AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+LOGFILE="$PREFIX/logs/$ID.log"
 if [ "$NEW_DATI" = "$PREFIX" ] || [ "$NEW_DATI" = "$APPS" ]; then
   die "❌ This name is reserved. Choose another one." "❌ Questo nome è riservato. Scegline un altro."
 fi
@@ -450,6 +467,7 @@ if [ -e "$APP" ]; then
   fi
 fi
 require_not_running "$EXISTING_COPIA" "$EXISTING_MOTORE"
+stop_agent
 
 if [ -d "$LEGACY_MOTORE" ]; then
   if [ "$EXISTING_MOTORE" = "$LEGACY_MOTORE" ] || [ -f "$LEGACY_MOTORE/colora.js" ]; then
@@ -514,12 +532,14 @@ DATI=$DATI
 NOME=$NOME
 GRADI=$GRADI
 COLORA=$COLORA
+LOG=$LOGFILE
 EOF
 
-LANCIATORE="$APP/Contents/MacOS/avvia"
-cat > "$LANCIATORE" <<'EOF'
-#!/bin/bash
-CFG="$(cd "$(dirname "$0")/.." && pwd)/Resources/config"
+# Shared by the launcher and the guard.
+cat > "$APP/Contents/Resources/common.sh" <<'EOF'
+# Claude Multi Account – shared helpers (sourced, not run).
+RES="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CFG="$RES/config"
 kv() {
   local k v
   while IFS='=' read -r k v || [ -n "${k-}" ]; do
@@ -540,36 +560,127 @@ COPIA="$(kv COPIA)"
 DATI="$(kv DATI)"
 GRADI="$(kv GRADI)"
 COLORA="$(kv COLORA)"
+LOG="$(kv LOG)"
+
+log() {
+  [ -n "$LOG" ] || return 0
+  mkdir -p "$(dirname "$LOG")" 2>/dev/null || return 0
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG" 2>/dev/null || return 0
+  # Keep the log short.
+  if [ "$(wc -l < "$LOG" 2>/dev/null || echo 0)" -gt 300 ]; then
+    tail -n 200 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+  fi
+}
+
+version() { defaults read "$1/Contents/Info" CFBundleShortVersionString 2>/dev/null; }
+# True if version $1 is newer than version $2 (dotted numbers).
+newer() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
+    for (i = 1; i <= k; i++) {
+      if ((x[i] + 0) > (y[i] + 0)) exit 0
+      if ((x[i] + 0) < (y[i] + 0)) exit 1
+    }
+    exit 1
+  }'
+}
+
+# PIDs of the copy's main process, "good" = started with --user-data-dir, "bad" = without.
+# Helpers live in Contents/Frameworks, so they don't match.
+copy_pids() {
+  local want="$1" pid cmd
+  ps -axo pid=,command= | while read -r pid cmd; do
+    case "$cmd" in
+      "$COPIA/Contents/MacOS/"*) ;;
+      *) continue ;;
+    esac
+    case "$cmd" in
+      *--user-data-dir=*) [ "$want" = good ] && echo "$pid" ;;
+      *) [ "$want" = bad ] && echo "$pid" ;;
+    esac
+  done
+}
+
+# Quit copies started without our data folder (after a Claude self-update,
+# from a Dock icon, or reopened by macOS). They would show the main account.
+stop_bad_copies() {
+  local pids p i
+  pids=$(copy_pids bad)
+  [ -n "$pids" ] || return 1
+  log "copy running without --user-data-dir (pid $(echo $pids)): restarting it"
+  for p in $pids; do kill -TERM "$p" 2>/dev/null; done
+  for i in $(seq 1 30); do
+    [ -n "$(copy_pids bad)" ] || break
+    sleep 0.5
+  done
+  for p in $(copy_pids bad); do kill -KILL "$p" 2>/dev/null; done
+  return 0
+}
+
+fix_icon() {
+  [ -n "$GRADI" ] && [ -d "$COPIA" ] || return 0
+  if [ ! -e "$COPIA/Icon"$'\r' ]; then
+    osascript -l JavaScript "$COLORA" "$SRC" "$COPIA" "$GRADI" >/dev/null 2>&1 && log "icon re-applied"
+    touch "$COPIA"
+  fi
+}
+
+launch_copy() {
+  if [ -d "$COPIA" ]; then
+    open -n -a "$COPIA" --args --user-data-dir="$DATI"
+  else
+    open -n -a "$SRC" --args --user-data-dir="$DATI"
+  fi
+}
+EOF
+
+LANCIATORE="$APP/Contents/MacOS/avvia"
+cat > "$LANCIATORE" <<'EOF'
+#!/bin/bash
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "$0")/.." && pwd)/Resources/common.sh"
 
 # No color: launch Claude directly with the separate data folder.
 if [ -z "$GRADI" ]; then
   exec open -n -a "$SRC" --args --user-data-dir="$DATI"
 fi
 
-# With color: launch a copy of Claude that carries the colored icon,
-# so the icon stays colored in the Dock while the app is running.
-version() { defaults read "$1/Contents/Info" CFBundleShortVersionString 2>/dev/null; }
-
-# Fixed-string match: a regex would break on parentheses in the path.
-# Ignore the grep process itself so a self-match cannot block a rebuild.
-if ! ps -axo command= | grep -F -- "$COPIA/Contents/MacOS/" | grep -qvF -- grep; then
-  if [ ! -d "$COPIA" ] || [ "$(version "$SRC")" != "$(version "$COPIA")" ] || [ ! -e "$COPIA/Icon"$'\r' ]; then
-    # First run, Claude updated, or icon lost: rebuild the copy.
-    rm -rf "$COPIA"
-    # "cp -c" makes an APFS clone: instant and no extra disk space.
-    cp -cR "$SRC" "$COPIA" 2>/dev/null || { rm -rf "$COPIA"; cp -R "$SRC" "$COPIA"; }
-    xattr -dr com.apple.quarantine "$COPIA" 2>/dev/null
-    osascript -l JavaScript "$COLORA" "$SRC" "$COPIA" "$GRADI" >/dev/null 2>&1
-  fi
+# Already running the right way: just bring it to the front.
+if [ -n "$(copy_pids good)" ]; then
+  exec open -a "$COPIA"
 fi
+stop_bad_copies || true
 
-if [ -d "$COPIA" ]; then
-  exec open -n -a "$COPIA" --args --user-data-dir="$DATI"
-else
-  exec open -n -a "$SRC" --args --user-data-dir="$DATI"
+# Build the copy the first time, or when the installed Claude is newer than it.
+# The copy may also update itself: never replace it with an older version.
+if [ ! -d "$COPIA" ] || newer "$(version "$SRC")" "$(version "$COPIA")"; then
+  log "rebuilding the copy from $SRC ($(version "$SRC"))"
+  rm -rf "$COPIA"
+  # "cp -c" makes an APFS clone: instant and no extra disk space.
+  cp -cR "$SRC" "$COPIA" 2>/dev/null || { rm -rf "$COPIA"; cp -R "$SRC" "$COPIA"; }
+  xattr -dr com.apple.quarantine "$COPIA" 2>/dev/null
 fi
+fix_icon
+launch_copy
 EOF
 chmod +x "$LANCIATORE"
+
+# Guard: run every few seconds by launchd (see step 4b).
+cat > "$APP/Contents/Resources/guard.sh" <<'EOF'
+#!/bin/bash
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+[ -n "$GRADI" ] || exit 0
+[ -d "$COPIA" ] || exit 0
+if stop_bad_copies; then
+  fix_icon
+  launch_copy
+  log "copy restarted with its own data folder"
+else
+  fix_icon
+fi
+EOF
+chmod +x "$APP/Contents/Resources/guard.sh"
 
 ICONA=$(defaults read "$CLAUDE/Contents/Info" CFBundleIconFile 2>/dev/null || echo "")
 [ -n "$ICONA" ] && [[ "$ICONA" != *.icns ]] && ICONA="$ICONA.icns"
@@ -602,6 +713,39 @@ if [ -n "$GRADI" ]; then
     t "⚠️  Colored icon not applied ($ESITO). The app still works, with the regular icon." \
       "⚠️  Icona colorata non applicata ($ESITO). L'app funziona lo stesso, con l'icona normale."
   fi
+fi
+
+# ── 4b. Guard ────────────────────────────────────────────────────────────────
+# Claude updates itself during the night and then restarts without our
+# --user-data-dir option, showing the main account. A small launchd job checks
+# every few seconds and restarts the copy the right way.
+if [ -n "$GRADI" ]; then
+  echo "→ $(t 'Installing the guard that keeps the second account after Claude updates' "Installo il controllo che mantiene il secondo account dopo gli aggiornamenti di Claude")"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$AGENT_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$AGENT_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$APP/Contents/Resources/guard.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>3</integer>
+  <key>WatchPaths</key>
+  <array>
+    <string>$APPS</string>
+  </array>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/dev/null</string>
+  <key>StandardErrorPath</key><string>/dev/null</string>
+</dict>
+</plist>
+EOF
+  launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST" 2>/dev/null || launchctl load -w "$AGENT_PLIST" 2>/dev/null || true
 fi
 
 # ── 5. Register the new app with macOS ───────────────────────────────────────
