@@ -6,7 +6,7 @@
 
 ![Two Claude Desktop windows side by side, signed in to different accounts, with differently colored icons in the Dock](assets/hero.png)
 
-Use **two Claude Desktop accounts at the same time**, each with its own sign-in, on Mac or Windows.
+Use **two Claude Desktop accounts at the same time**, each with its own sign-in, on Mac, Windows, or Linux.
 The script creates a second app (e.g. "Claude 2") that launches Claude Desktop with a separate data folder, and gives it an icon in a different color. The original Claude app is never modified.
 
 👉 **Page with a simple interface:** https://andrea6687.github.io/claude-multi-account/
@@ -14,11 +14,12 @@ Pick a name and a color, copy the command and paste it.
 
 ## Quick install
 
-**Mac** – open Terminal and paste:
+**Mac / Linux** – open Terminal and paste:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash
 ```
-Claude Desktop (the app from claude.ai/download) is looked for in `/Applications`, then in `~/Applications`, then anywhere on the Mac with Spotlight. To use a specific copy: `curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | CLAUDE_APP="/path/to/Claude.app" bash`
+- **Mac:** Claude Desktop (the app from claude.ai/download) is looked for in `/Applications`, then in `~/Applications`, then anywhere on the Mac with Spotlight. To use a specific copy: `curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | CLAUDE_APP="/path/to/Claude.app" bash`
+- **Linux:** Claude Desktop (`claude-desktop`) is looked for in standard binary paths (`/usr/bin/claude-desktop`, `/opt/Claude`, etc.), `.desktop` files, Flatpak, and AppImages. To use a specific binary: `curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | CLAUDE_APP="/path/to/claude-desktop" bash`
 
 **Windows** – open PowerShell and paste:
 ```powershell
@@ -31,7 +32,7 @@ The name is trimmed of spaces at the ends. It can't be empty, it can't be `Claud
 
 With the name and color already chosen:
 
-**Mac**
+**Mac / Linux**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash -s -- "Claude 2" blue
 ```
@@ -54,16 +55,18 @@ Claude Desktop accepts the `--user-data-dir` option, which sets where sign-in an
 
   **Guard:** when Claude updates itself (usually at night) it restarts without the `--user-data-dir` option, so the second app would come back signed in to your main account. The same happens if you open the copy from a Dock icon you pinned while it was running, or if macOS reopens it at login. A small background job (`~/Library/LaunchAgents/local.claude-multi-account.<name>.plist`) checks every 3 seconds and, when it finds the copy running without its data folder, quits it and starts it again the right way, with the colored icon. What it does is logged in `ClaudeMultiAccount/logs/<name>.log`. macOS may show a "Background item added" notice for `bash`: that's the guard. The Dock restarts for a moment so the new icon shows up. If a launcher from an older version of this tool is already there, its data folder is kept, so you stay signed in. Quit the second app (Cmd+Q) before installing again or removing it; otherwise the script stops and changes nothing.
 - **Windows:** shortcuts on the Desktop and in the Start menu. Data in `%APPDATA%\ClaudeMultiAccount\<name>`. Colored icons in `%LOCALAPPDATA%\ClaudeMultiAccount`. Works with both kinds of Claude install: the Windows app package used by recent versions (named `AnthropicPBC.Claude` or just `Claude`, depending on the install), which the shortcut starts by its app ID through a small hidden launcher (`launch.ps1` in the same folder), and the older installer in `%LOCALAPPDATA%\AnthropicClaude`. An older shortcut keeps the data folder it already points to.
+- **Linux:** desktop entry in `~/.local/share/applications/claude-multi-account-<id>.desktop`. Data in `~/.config/ClaudeMultiAccount/<name>/`. Launcher script and colored icons in `~/.local/share/ClaudeMultiAccount/` (plus `~/.local/share/icons/hicolor/`). Passes `--class=claude-multi-account-<id>` matching `StartupWMClass` so the desktop environment groups the second window under its colored icon.
 
 ## Remove
 
 Quit the second app first (on Mac, Cmd+Q). The script asks in the terminal before deleting the data folder, because that folder is the sign-in. Running it again after everything is gone does nothing.
 
-**Mac**
+**Mac / Linux**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash -s -- --uninstall "Claude 2"
 ```
-Removes `~/Applications/<name>.app` only when it is this tool's launcher, the data folder, the clone `ClaudeMultiAccount/apps/<name>.app`, a previous copy under `ClaudeMultiAccount/<name>/app`, and the old folder `~/Library/Application Support/<name> (app)` when it belonged to this tool. The old data folder `~/Library/Application Support/<name>` is removed only when that launcher pointed at it. The guard job and its log are removed too. The Dock restarts for a moment. If the copy is still running, or an app with that name is not ours, the script stops and deletes nothing.
+- **Mac:** removes `~/Applications/<name>.app` only when it is this tool's launcher, the data folder, the clone `ClaudeMultiAccount/apps/<name>.app`, a previous copy under `ClaudeMultiAccount/<name>/app`, and the old folder `~/Library/Application Support/<name> (app)` when it belonged to this tool. The old data folder `~/Library/Application Support/<name>` is removed only when that launcher pointed at it. The guard job and its log are removed too. The Dock restarts for a moment. If the copy is still running, or an app with that name is not ours, the script stops and deletes nothing.
+- **Linux:** removes `~/.local/share/applications/claude-multi-account-<id>.desktop`, the launcher script, the colored icon, and (after confirmation) the data folder `~/.config/ClaudeMultiAccount/<name>/`. If the second instance is still running, or a desktop entry with that name is not ours, the script stops and deletes nothing.
 
 **Windows**
 ```powershell

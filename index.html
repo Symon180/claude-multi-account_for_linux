@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Multi Account</title>
-<meta name="description" content="Stop signing out to switch between your personal and work Claude accounts. Use both side by side on Mac or Windows.">
+<meta name="description" content="Stop signing out to switch between your personal and work Claude accounts. Use both side by side on Mac, Windows, or Linux.">
 <meta property="og:title" content="Claude Multi Account">
-<meta property="og:description" content="Stop signing out to switch between your personal and work Claude accounts. Mac &amp; Windows.">
+<meta property="og:description" content="Stop signing out to switch between your personal and work Claude accounts. Mac, Windows &amp; Linux.">
 <meta property="og:image" content="https://andrea6687.github.io/claude-multi-account/assets/hero.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -137,6 +137,7 @@ footer a { color: inherit; }
     <div class="seg" role="group" aria-labelledby="h-os">
       <button type="button" id="os-mac" data-os="mac">Mac</button>
       <button type="button" id="os-win" data-os="win">Windows</button>
+      <button type="button" id="os-linux" data-os="linux">Linux</button>
     </div>
   </section>
 
@@ -194,7 +195,7 @@ const TEXT = {
     fixName: "Fix the name in step 2.",
     remove: "Remove",
     copy: "Copy command", copied: "Copied", selected: "Selected: press Copy",
-    whereMac: "Terminal · Mac", whereWin: "PowerShell · Windows",
+    whereMac: "Terminal · Mac", whereWin: "PowerShell · Windows", whereLinux: "Terminal · Linux",
     howMac: `<li>Open <b>Terminal</b>: press <kbd>⌘</kbd> <kbd>Space</kbd> and type "Terminal".</li>
              <li>Paste the command with <kbd>⌘</kbd> <kbd>V</kbd> and press <kbd>Return</kbd>.</li>
              <li>Claude Desktop must already be installed (it's found automatically). The Dock restarts for a moment.</li>
@@ -202,6 +203,10 @@ const TEXT = {
     howWin: `<li>Right-click the Start button and choose <b>Terminal</b> (or Windows PowerShell).</li>
              <li>Paste the command with <kbd>Ctrl</kbd> <kbd>V</kbd> and press <kbd>Enter</kbd>.</li>
              <li>You'll find the new shortcut on the Desktop and in the Start menu.</li>`,
+    howLinux: `<li>Open your <b>Terminal</b> application.</li>
+               <li>Paste the command with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>V</kbd> and press <kbd>Enter</kbd>.</li>
+               <li>Claude Desktop must already be installed (it's found automatically).</li>
+               <li>You'll find the new app in your applications menu.</li>`,
     firstTitle: "The first sign-in",
     first: "In the new app don't use \"Continue with Google\". Type your email, press \"Continue with email\" and paste the code you receive into the window. If you click the link in the email, the other Claude opens instead. Alternatively, fully quit the main Claude before signing in.",
     footer: "Unofficial tool, not affiliated with Anthropic. It doesn't modify the Claude app: it launches it with a separate data folder. Code on"
@@ -216,7 +221,7 @@ const TEXT = {
     fixName: "Correggi il nome al passo 2.",
     remove: "Rimuovi",
     copy: "Copia comando", copied: "Copiato", selected: "Selezionato: premi Copia",
-    whereMac: "Terminale · Mac", whereWin: "PowerShell · Windows",
+    whereMac: "Terminale · Mac", whereWin: "PowerShell · Windows", whereLinux: "Terminale · Linux",
     howMac: `<li>Apri il <b>Terminale</b>: premi <kbd>⌘</kbd> <kbd>Spazio</kbd> e scrivi "Terminale".</li>
              <li>Incolla il comando con <kbd>⌘</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
              <li>Claude Desktop deve essere già installato (viene trovato da solo). Il Dock si riavvia per un attimo.</li>
@@ -224,6 +229,10 @@ const TEXT = {
     howWin: `<li>Clicca col tasto destro sul pulsante Start e scegli <b>Terminale</b> (o Windows PowerShell).</li>
              <li>Incolla il comando con <kbd>Ctrl</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
              <li>Trovi il nuovo collegamento sul Desktop e nel menu Start.</li>`,
+    howLinux: `<li>Apri il <b>Terminale</b>.</li>
+               <li>Incolla il comando con <kbd>Ctrl</kbd> <kbd>Maiusc</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
+               <li>Claude Desktop deve essere già installato (viene trovato da solo).</li>
+               <li>Trovi la nuova app nel menu delle applicazioni.</li>`,
     firstTitle: "Il primo accesso",
     first: "Nella nuova app non usare \"Continua con Google\". Scrivi l'email, premi \"Continua con email\" e incolla nella finestra il codice che ricevi. Se clicchi il link nell'email si apre l'altro Claude. In alternativa, chiudi del tutto il Claude principale prima di accedere.",
     footer: "Strumento non ufficiale, non affiliato ad Anthropic. Non modifica l'app Claude: la avvia con una cartella dati separata. Codice su"
@@ -233,7 +242,7 @@ const TEXT = {
 function savedLang() { try { return localStorage.getItem("lang"); } catch { return null; } }
 const state = {
   lang: savedLang() || (/^it\b/i.test(navigator.language || "") ? "it" : "en"),
-  os: /Win/i.test(navigator.userAgent) ? "win" : "mac",
+  os: /Win/i.test(navigator.userAgent) ? "win" : (/Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent) ? "linux" : "mac"),
   name: "Claude 2",
   color: "blue"
 };
@@ -271,7 +280,7 @@ $("name").addEventListener("input", e => { state.name = e.target.value; render()
 
 function command() {
   const n = state.name.trim() || "Claude 2";
-  if (state.os === "mac") {
+  if (state.os === "mac" || state.os === "linux") {
     return `curl -fsSL ${RAW}install.sh | bash -s -- "${n}" ${state.color}`;
   }
   return `& ([scriptblock]::Create((irm ${RAW}install.ps1))) "${n}" ${state.color}`;
@@ -304,10 +313,10 @@ function render() {
   $("cmd").textContent = ok ? command() : T.fixName;
   $("copy").disabled = !ok;
   $("copy").textContent = T.copy;
-  $("where").textContent = state.os === "mac" ? T.whereMac : T.whereWin;
-  $("howto").innerHTML = state.os === "mac" ? T.howMac : T.howWin;
+  $("where").textContent = state.os === "mac" ? T.whereMac : (state.os === "linux" ? T.whereLinux : T.whereWin);
+  $("howto").innerHTML = state.os === "mac" ? T.howMac : (state.os === "linux" ? T.howLinux : T.howWin);
   const shown = state.name.trim() || "Claude 2";
-  const removeCmd = state.os === "mac"
+  const removeCmd = (state.os === "mac" || state.os === "linux")
     ? `curl -fsSL ${RAW}install.sh | bash -s -- --uninstall "${shown}"`
     : `& ([scriptblock]::Create((irm ${RAW}install.ps1))) -Uninstall "${shown}"`;
   $("uninstall").textContent = ok ? `${T.remove}: ${removeCmd}` : "";

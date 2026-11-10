@@ -1,13 +1,14 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  Claude Multi Account – macOS
+#  Claude Multi Account – macOS & Linux
 #
 #  Creates a second app ("Claude 2") that launches Claude Desktop with a
 #  separate login, so you can use two accounts side by side. It also gets an
-#  icon in a different color, visible in the Dock while the app is running.
-#  The original Claude app is never modified: the colored icon lives on an
-#  APFS "clone" copy of Claude.app, which takes no extra disk space and is
-#  refreshed automatically when Claude updates.
+#  icon in a different color, visible in the Dock / taskbar while running.
+#  The original Claude app is never modified: on macOS the colored icon lives on
+#  an APFS "clone" copy of Claude.app (taking no extra disk space and refreshed
+#  automatically when Claude updates); on Linux a desktop entry and wrapper
+#  script launch Claude with a separate data folder and window class.
 #
 #  Usage (paste into Terminal):
 #    curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.sh | bash
@@ -19,24 +20,40 @@
 #  Colors: blue, green, purple, pink, cyan, yellow, none
 #          (Italian names work too: blu, verde, viola, rosa, azzurro, giallo, nessuno)
 #
-#  Claude Desktop is looked for in /Applications, then in ~/Applications, then
-#  anywhere on the Mac with Spotlight. To point at a specific copy:
-#    curl -fsSL .../install.sh | CLAUDE_APP="/path/to/Claude.app" bash
-#  Data: ~/Library/Application Support/ClaudeMultiAccount/<name>/
-#  Clone: ~/Library/Application Support/ClaudeMultiAccount/apps/<name>.app
-#  The Dock restarts for a moment so the icon updates.
+#  macOS:
+#    Claude Desktop is looked for in /Applications, then in ~/Applications, then
+#    anywhere on the Mac with Spotlight. To point at a specific copy:
+#      curl -fsSL .../install.sh | CLAUDE_APP="/path/to/Claude.app" bash
+#    Data: ~/Library/Application Support/ClaudeMultiAccount/<name>/
+#    Clone: ~/Library/Application Support/ClaudeMultiAccount/apps/<name>.app
+#    The Dock restarts for a moment so the icon updates.
+#
+#  Linux:
+#    Claude Desktop is looked for in standard binary paths (/usr/bin/claude-desktop,
+#    /opt/Claude, etc.), .desktop entries, Flatpak, and AppImages. To point at a
+#    specific executable:
+#      curl -fsSL .../install.sh | CLAUDE_APP="/path/to/claude-desktop" bash
+#    Data: ~/.config/ClaudeMultiAccount/<name>/
+#    Launcher & icons: ~/.local/share/ClaudeMultiAccount/
+#    Desktop entry: ~/.local/share/applications/claude-multi-account-<id>.desktop
 #
 #  FIRST SIGN-IN – IMPORTANT:
 #    In the new app do NOT use "Continue with Google". Type your email, press
 #    "Continue with email", then paste the CODE from the email into the window
 #    (don't click the link, or the other Claude app will open).
-#    Alternatively: quit the main Claude app (Cmd+Q) before signing in.
+#    Alternatively: quit the main Claude app (Cmd+Q / Ctrl+Q) before signing in.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -e
 
-# Messages follow the system language: Italian if the Mac is set to Italian, English otherwise.
-LINGUA=$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' "(),\n' | cut -c1-2 || true)
+OS_KERNEL=$(uname -s 2>/dev/null || echo "Darwin")
+
+# Messages follow the system language: Italian if the system is set to Italian, English otherwise.
+if [ "$OS_KERNEL" = "Darwin" ]; then
+  LINGUA=$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' "(),\n' | cut -c1-2 || true)
+else
+  LINGUA=$(printf '%s' "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" | tr '[:upper:]' '[:lower:]' | cut -c1-2)
+fi
 t() { if [ "$LINGUA" = "it" ]; then echo "$2"; else echo "$1"; fi; }
 die() { t "$1" "$2"; exit 1; }
 
@@ -69,8 +86,10 @@ app_is_ours() {
 
 is_protected() {
   local p="${1%/}"
+  local xdg_cfg="${XDG_CONFIG_HOME:-$HOME/.config}"
+  local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
   case "$p" in
-    ""|"/"|"$HOME"|"$HOME/Applications"|"$HOME/Desktop"|"$HOME/Library"|"$HOME/Library/Application Support"|"$HOME/Library/Application Support/ClaudeMultiAccount"|"$HOME/Library/Application Support/ClaudeMultiAccount/apps")
+    ""|"/"|"$HOME"|"$HOME/Applications"|"$HOME/Desktop"|"$HOME/Library"|"$HOME/Library/Application Support"|"$HOME/Library/Application Support/ClaudeMultiAccount"|"$HOME/Library/Application Support/ClaudeMultiAccount/apps"|"$HOME/.config"|"$HOME/.local"|"$xdg_cfg"|"$xdg_data"|"$xdg_cfg/ClaudeMultiAccount"|"$xdg_data/ClaudeMultiAccount"|"$xdg_data/applications")
       return 0 ;;
     *) return 1 ;;
   esac
@@ -361,6 +380,537 @@ find_claude() {
   return 0
 }
 
+# ── Linux helpers ────────────────────────────────────────────────────────────
+desktop_is_ours_linux() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  grep -qE '^X-ClaudeMultiAccount-Id=|/ClaudeMultiAccount/launch-' "$f" 2>/dev/null
+}
+
+find_claude_linux() {
+  local c="" d="" exec_line="" bin=""
+  if [ -n "${CLAUDE_APP-}" ]; then
+    if [ -f "$CLAUDE_APP" ] && [ -x "$CLAUDE_APP" ]; then
+      printf '%s' "$CLAUDE_APP"
+      return 0
+    fi
+    if [ -d "$CLAUDE_APP" ]; then
+      for c in "$CLAUDE_APP/claude-desktop" "$CLAUDE_APP/claude" "$CLAUDE_APP/AppRun"; do
+        if [ -f "$c" ] && [ -x "$c" ]; then
+          printf '%s' "$c"
+          return 0
+        fi
+      done
+    fi
+    return 0
+  fi
+
+  for c in \
+    "/usr/bin/claude-desktop" \
+    "/usr/local/bin/claude-desktop" \
+    "/opt/Claude/claude-desktop" \
+    "/opt/claude-desktop/claude-desktop" \
+    "/usr/lib/claude-desktop/claude-desktop" \
+    "/snap/bin/claude-desktop"; do
+    if [ -f "$c" ] && [ -x "$c" ]; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+
+  if command -v claude-desktop >/dev/null 2>&1; then
+    c=$(command -v claude-desktop)
+    if [ -n "$c" ] && [ -x "$c" ]; then
+      printf '%s' "$c"
+      return 0
+    fi
+  fi
+
+  for d in \
+    "/usr/share/applications/claude-desktop.desktop" \
+    "/usr/local/share/applications/claude-desktop.desktop" \
+    "/var/lib/flatpak/exports/share/applications/com.anthropic.Claude.desktop" \
+    "$HOME/.local/share/applications/claude-desktop.desktop"; do
+    if [ -f "$d" ] && ! desktop_is_ours_linux "$d"; then
+      exec_line=$(sed -n 's/^Exec=//p' "$d" | head -n 1)
+      # Strip desktop field codes (%U, %u, %F, %f) and leading env wrappers.
+      bin=$(printf '%s' "$exec_line" | sed -E 's/ %[a-zA-Z]//g; s/^env ([^ ]+=[^ ]+ )*//; s/^"([^"]+)".*/\1/; s/^([^ ]+).*/\1/')
+      if [ -n "$bin" ] && [ -x "$bin" ]; then
+        printf '%s' "$bin"
+        return 0
+      fi
+    fi
+  done
+
+  for d in "$HOME/Applications" "$HOME/.local/bin" "$HOME/Downloads"; do
+    [ -d "$d" ] || continue
+    for c in "$d"/[Cc]laude*.AppImage "$d"/claude-desktop*; do
+      if [ -f "$c" ] && [ -x "$c" ]; then
+        printf '%s' "$c"
+        return 0
+      fi
+    done
+  done
+  return 0
+}
+
+find_claude_icon_linux() {
+  local claude_bin="${1-}" icon="" d="" icon_key=""
+  local xdg_data="${XDG_DATA_HOME:-$HOME/.local/share}"
+  for d in \
+    "/usr/share/applications/claude-desktop.desktop" \
+    "/usr/local/share/applications/claude-desktop.desktop" \
+    "$xdg_data/applications/claude-desktop.desktop"; do
+    if [ -f "$d" ] && ! desktop_is_ours_linux "$d"; then
+      icon_key=$(sed -n 's/^Icon=//p' "$d" | head -n 1)
+      if [ -n "$icon_key" ] && [ -f "$icon_key" ]; then
+        printf '%s' "$icon_key"
+        return 0
+      fi
+    fi
+  done
+
+  for icon in \
+    "/usr/share/icons/hicolor/512x512/apps/claude-desktop.png" \
+    "/usr/share/icons/hicolor/256x256/apps/claude-desktop.png" \
+    "/usr/share/icons/hicolor/128x128/apps/claude-desktop.png" \
+    "/usr/share/icons/hicolor/64x64/apps/claude-desktop.png" \
+    "/usr/share/icons/hicolor/48x48/apps/claude-desktop.png" \
+    "/usr/share/icons/hicolor/scalable/apps/claude-desktop.svg" \
+    "/usr/share/pixmaps/claude-desktop.png" \
+    "/usr/share/pixmaps/claude.png" \
+    "/opt/Claude/resources/app/icon.png" \
+    "/opt/Claude/claude-desktop.png" \
+    "/usr/lib/claude-desktop/icon.png" \
+    "$xdg_data/icons/hicolor/256x256/apps/claude-desktop.png" \
+    "$xdg_data/icons/hicolor/512x512/apps/claude-desktop.png"; do
+    if [ -f "$icon" ]; then
+      printf '%s' "$icon"
+      return 0
+    fi
+  done
+
+  if [ -n "$claude_bin" ]; then
+    d=$(dirname "$claude_bin")
+    for icon in "$d/claude-desktop.png" "$d/icon.png" "$d/resources/icon.png"; do
+      if [ -f "$icon" ]; then
+        printf '%s' "$icon"
+        return 0
+      fi
+    done
+  fi
+  return 0
+}
+
+data_in_use_linux() {
+  local target="${1%/}"
+  [ -n "$target" ] || return 1
+  # shellcheck disable=SC2009
+  ps -eo args= 2>/dev/null | grep -F -- "--user-data-dir=$target" | grep -qvF -- grep
+}
+
+require_not_running_linux() {
+  local p
+  for p in "$@"; do
+    [ -n "$p" ] || continue
+    if data_in_use_linux "$p"; then
+      die "❌ Quit \"$NOME\" and run this again." "❌ Chiudi \"$NOME\" e rilancia."
+    fi
+  done
+}
+
+refresh_desktop_linux() {
+  local apps_dir="$1" icon_root="$2"
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$apps_dir" >/dev/null 2>&1 || true
+  fi
+  if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "$icon_root" ]; then
+    gtk-update-icon-cache -f -t "$icon_root" >/dev/null 2>&1 || true
+  fi
+}
+
+do_uninstall_linux() {
+  local existing_dati="" removed_any=0 declined=0 d ans="" ans_lc="" f="" left=0
+  local -a login_dirs=()
+
+  for f in "$LINUX_DESKTOP" "$LINUX_LEGACY_DESKTOP"; do
+    if [ -e "$f" ] && ! desktop_is_ours_linux "$f"; then
+      die "❌ \"$f\" already exists and is not a Claude Multi Account launcher. Nothing was changed." \
+        "❌ \"$f\" esiste già e non è un launcher di Claude Multi Account. Non ho modificato nulla."
+    fi
+  done
+
+  if [ -f "$LINUX_CFG" ]; then
+    existing_dati=$(read_kv "$LINUX_CFG" DATI)
+  fi
+  require_not_running_linux "$NEW_DATI" "$existing_dati"
+
+  for f in \
+    "$LINUX_DESKTOP" \
+    "$LINUX_LEGACY_DESKTOP" \
+    "$LINUX_LAUNCHER" \
+    "$LINUX_CFG" \
+    "$LINUX_ICON_DIR/$ID.png" \
+    "$LINUX_ICON_DIR/$ID.svg" \
+    "$LINUX_HICOLOR/256x256/apps/claude-multi-account-$ID.png" \
+    "$LINUX_HICOLOR/scalable/apps/claude-multi-account-$ID.svg"; do
+    if [ -f "$f" ]; then
+      rm -f -- "$f"
+      removed_any=1
+    fi
+  done
+
+  if dir_empty "$LINUX_ICON_DIR"; then
+    rmdir -- "$LINUX_ICON_DIR" 2>/dev/null || true
+  fi
+  if [ -d "$LINUX_BASE" ]; then
+    for f in "$LINUX_BASE"/launch-*.sh "$LINUX_BASE"/config-*; do
+      if [ -e "$f" ]; then left=1; break; fi
+    done
+    if [ "$left" -eq 0 ]; then
+      rm -f -- "$LINUX_COLORA"
+      rmdir -- "$LINUX_BASE" 2>/dev/null || true
+    fi
+  fi
+  if dir_empty "$NEW_DATI"; then
+    rmdir -- "$NEW_DATI" 2>/dev/null || true
+  fi
+
+  add_login "$NEW_DATI"
+  if [ -n "$existing_dati" ]; then
+    add_login "$existing_dati"
+  fi
+
+  if [ "${#login_dirs[@]}" -gt 0 ]; then
+    t "This folder holds the sign-in:" "Questa cartella contiene il login:"
+    for d in "${login_dirs[@]}"; do
+      echo "  $d"
+    done
+    read -r -p "$(t 'Delete the data folder? [y/N] ' 'Cancellare la cartella dati? [s/N] ')" ans < /dev/tty || ans=""
+    ans_lc=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
+    case "$ans_lc" in
+      y|yes|s|si|sì)
+        for d in "${login_dirs[@]}"; do
+          rm_tree "$d"
+        done
+        removed_any=1
+        ;;
+      *)
+        t "Data folder kept." "Cartella dati conservata."
+        declined=1
+        ;;
+    esac
+  fi
+
+  if dir_empty "$PREFIX"; then
+    rmdir -- "$PREFIX" 2>/dev/null || true
+  fi
+  refresh_desktop_linux "$LINUX_APPS_DIR" "$LINUX_HICOLOR"
+
+  if [ "$removed_any" -eq 1 ]; then
+    t "Removed." "Rimosso."
+  elif [ "$declined" -eq 0 ]; then
+    t "Already removed. Nothing to delete." "Già rimosso. Niente da cancellare."
+  fi
+}
+
+install_linux() {
+  local existing_dati="" f="" src_icon="" ext="png" out_icon="" theme_icon="" icon_value="claude-desktop" esito=""
+
+  for f in "$LINUX_DESKTOP" "$LINUX_LEGACY_DESKTOP"; do
+    if [ -e "$f" ] && ! desktop_is_ours_linux "$f"; then
+      die "❌ \"$f\" already exists and is not a Claude Multi Account launcher. Nothing was changed." \
+        "❌ \"$f\" esiste già e non è un launcher di Claude Multi Account. Non ho modificato nulla."
+    fi
+  done
+
+  DATI="$NEW_DATI"
+  if [ -f "$LINUX_CFG" ]; then
+    existing_dati=$(read_kv "$LINUX_CFG" DATI)
+    if [ -n "$existing_dati" ] && path_ok "$existing_dati"; then
+      DATI="$existing_dati"
+    fi
+  fi
+  require_not_running_linux "$DATI" "$NEW_DATI"
+
+  if [ -f "$LINUX_LEGACY_DESKTOP" ] && [ "$LINUX_LEGACY_DESKTOP" != "$LINUX_DESKTOP" ]; then
+    rm -f -- "$LINUX_LEGACY_DESKTOP"
+  fi
+
+  echo "→ $(t 'Separate data folder' 'Cartella dati separata'): $DATI"
+  mkdir -p "$DATI" "$LINUX_BASE" "$LINUX_ICON_DIR" "$LINUX_APPS_DIR"
+
+  cat > "$LINUX_COLORA" <<'EOF'
+#!/usr/bin/env python3
+import sys, os, re, struct, zlib, colorsys
+
+def shift_rgb(r, g, b, shift):
+    h, l, s = colorsys.rgb_to_hls(r / 255.0, g / 255.0, b / 255.0)
+    nr, ng, nb = colorsys.hls_to_rgb((h + shift) % 1.0, l, s)
+    return int(round(nr * 255)), int(round(ng * 255)), int(round(nb * 255))
+
+def recolor_svg(src_path, dst_path, degrees):
+    shift = (float(degrees) % 360.0) / 360.0
+    with open(src_path, "r", encoding="utf-8") as f:
+        svg = f.read()
+    def repl_hex(m):
+        hx = m.group(1)
+        if len(hx) == 3:
+            hx = "".join(c * 2 for c in hx)
+        r, g, b = int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16)
+        nr, ng, nb = shift_rgb(r, g, b, shift)
+        return f"#{nr:02x}{ng:02x}{nb:02x}"
+    svg = re.sub(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b", repl_hex, svg)
+    with open(dst_path, "w", encoding="utf-8") as f:
+        f.write(svg)
+
+def recolor_png(src_path, dst_path, degrees):
+    shift = (float(degrees) % 360.0) / 360.0
+    try:
+        from PIL import Image
+        img = Image.open(src_path).convert("RGBA")
+        px = img.load()
+        w, h = img.size
+        cache = {}
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = px[x, y]
+                if a == 0:
+                    continue
+                key = (r, g, b)
+                if key not in cache:
+                    cache[key] = shift_rgb(r, g, b, shift)
+                nr, ng, nb = cache[key]
+                px[x, y] = (nr, ng, nb, a)
+        img.save(dst_path, "PNG")
+        return
+    except ImportError:
+        pass
+
+    with open(src_path, "rb") as f:
+        data = f.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG file")
+    pos = 8
+    w = h = bit_depth = color_type = 0
+    plte = trns = None
+    idat_chunks = []
+    while pos < len(data):
+        length = struct.unpack(">I", data[pos:pos+4])[0]
+        tag = data[pos+4:pos+8]
+        chunk_data = data[pos+8:pos+8+length]
+        pos += 12 + length
+        if tag == b"IHDR":
+            w, h, bit_depth, color_type, comp, filt, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            if bit_depth != 8 or interlace != 0 or color_type not in (2, 3, 6):
+                raise ValueError(f"unsupported PNG format (depth={bit_depth}, type={color_type})")
+        elif tag == b"PLTE":
+            plte = chunk_data
+        elif tag == b"tRNS":
+            trns = chunk_data
+        elif tag == b"IDAT":
+            idat_chunks.append(chunk_data)
+        elif tag == b"IEND":
+            break
+
+    bpp = {2: 3, 3: 1, 6: 4}[color_type]
+    raw = zlib.decompress(b"".join(idat_chunks))
+    stride = w * bpp
+    recon = bytearray(h * stride)
+    i = 0
+    for y in range(h):
+        ftype = raw[i]
+        i += 1
+        row_start = y * stride
+        prev_start = (y - 1) * stride
+        for x in range(stride):
+            val = raw[i]
+            i += 1
+            a = recon[row_start + x - bpp] if x >= bpp else 0
+            b = recon[prev_start + x] if y > 0 else 0
+            c = recon[prev_start + x - bpp] if (x >= bpp and y > 0) else 0
+            if ftype == 1:
+                val = (val + a) & 0xff
+            elif ftype == 2:
+                val = (val + b) & 0xff
+            elif ftype == 3:
+                val = (val + ((a + b) >> 1)) & 0xff
+            elif ftype == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                val = (val + pr) & 0xff
+            recon[row_start + x] = val
+
+    out_raw = bytearray()
+    cache = {}
+    for y in range(h):
+        out_raw.append(0)
+        row_start = y * stride
+        for x in range(w):
+            p = row_start + x * bpp
+            if color_type == 6:
+                r, g, b, a = recon[p], recon[p+1], recon[p+2], recon[p+3]
+            elif color_type == 2:
+                r, g, b, a = recon[p], recon[p+1], recon[p+2], 255
+            else:
+                idx = recon[p]
+                r, g, b = plte[idx*3:idx*3+3]
+                a = trns[idx] if (trns and idx < len(trns)) else 255
+            if a == 0:
+                out_raw.extend((0, 0, 0, 0))
+            else:
+                key = (r, g, b)
+                if key not in cache:
+                    cache[key] = shift_rgb(r, g, b, shift)
+                nr, ng, nb = cache[key]
+                out_raw.extend((nr, ng, nb, a))
+
+    def make_chunk(tag, body):
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body) & 0xffffffff)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    idat = zlib.compress(bytes(out_raw), 6)
+    with open(dst_path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + make_chunk(b"IHDR", ihdr) + make_chunk(b"IDAT", idat) + make_chunk(b"IEND", b""))
+
+if __name__ == "__main__":
+    try:
+        src, dst, deg = sys.argv[1], sys.argv[2], float(sys.argv[3])
+        if src.lower().endswith(".svg"):
+            recolor_svg(src, dst, deg)
+        else:
+            recolor_png(src, dst, deg)
+        print("ok")
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
+EOF
+  chmod +x "$LINUX_COLORA"
+
+  src_icon=$(find_claude_icon_linux "$CLAUDE")
+  if [ -n "$src_icon" ]; then
+    icon_value="$src_icon"
+  fi
+
+  if [ -n "$GRADI" ]; then
+    echo "→ $(t "Coloring the icon: $COLORE" "Coloro l'icona: $COLORE")"
+    if [ -z "$src_icon" ]; then
+      esito=$(t "Claude icon not found" "icona di Claude non trovata")
+    else
+      case "$src_icon" in
+        *.svg|*.SVG) ext="svg" ;;
+        *) ext="png" ;;
+      esac
+      out_icon="$LINUX_ICON_DIR/$ID.$ext"
+      if command -v python3 >/dev/null 2>&1; then
+        esito=$(python3 "$LINUX_COLORA" "$src_icon" "$out_icon" "$GRADI" 2>&1 || true)
+      elif command -v magick >/dev/null 2>&1; then
+        magick "$src_icon" -modulate "100,100,$((100 + GRADI * 200 / 360))" "$out_icon" >/dev/null 2>&1 && esito="ok" || esito="magick error"
+      elif command -v convert >/dev/null 2>&1; then
+        convert "$src_icon" -modulate "100,100,$((100 + GRADI * 200 / 360))" "$out_icon" >/dev/null 2>&1 && esito="ok" || esito="convert error"
+      else
+        esito=$(t "python3 or ImageMagick not found" "python3 o ImageMagick non trovato")
+      fi
+    fi
+
+    if [ "$esito" = "ok" ] && [ -f "$out_icon" ]; then
+      if [ "$ext" = "svg" ]; then
+        theme_icon="$LINUX_HICOLOR/scalable/apps/claude-multi-account-$ID.svg"
+      else
+        theme_icon="$LINUX_HICOLOR/256x256/apps/claude-multi-account-$ID.png"
+      fi
+      mkdir -p "$(dirname "$theme_icon")"
+      cp "$out_icon" "$theme_icon"
+      icon_value="$out_icon"
+    else
+      t "⚠️  Colored icon not applied ($esito). The app still works, with the regular icon." \
+        "⚠️  Icona colorata non applicata ($esito). L'app funziona lo stesso, con l'icona normale."
+    fi
+  fi
+
+  echo "→ $(t 'Creating the launcher' 'Creo il lanciatore'): $LINUX_DESKTOP"
+  cat > "$LINUX_CFG" <<EOF
+SRC=$CLAUDE
+DATI=$DATI
+NOME=$NOME
+ID=$ID
+GRADI=$GRADI
+EOF
+
+  cat > "$LINUX_LAUNCHER" <<'EOF'
+#!/bin/bash
+CFG_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+ID="${SCRIPT_NAME#launch-}"
+ID="${ID%.sh}"
+CFG="$CFG_DIR/config-$ID"
+
+kv() {
+  local k v
+  [ -f "$CFG" ] || return 0
+  while IFS='=' read -r k v || [ -n "${k-}" ]; do
+    if [ "$k" = "$1" ]; then
+      printf '%s' "$v"
+      return 0
+    fi
+  done < "$CFG"
+}
+
+SRC="$(kv SRC)"
+DATI="$(kv DATI)"
+if [ ! -x "$SRC" ]; then
+  for c in \
+    "/usr/bin/claude-desktop" \
+    "/usr/local/bin/claude-desktop" \
+    "/opt/Claude/claude-desktop" \
+    "/opt/claude-desktop/claude-desktop" \
+    "/usr/lib/claude-desktop/claude-desktop" \
+    "/snap/bin/claude-desktop"; do
+    if [ -x "$c" ]; then SRC="$c"; break; fi
+  done
+  if [ ! -x "$SRC" ] && command -v claude-desktop >/dev/null 2>&1; then
+    SRC="$(command -v claude-desktop)"
+  fi
+fi
+
+mkdir -p "$DATI"
+exec "$SRC" --class="claude-multi-account-$ID" --user-data-dir="$DATI" "$@"
+EOF
+  chmod +x "$LINUX_LAUNCHER"
+
+  cat > "$LINUX_DESKTOP" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=$NOME
+Comment=Claude with a second account
+Comment[it]=Claude con un secondo account
+Exec="$LINUX_LAUNCHER" %U
+Icon=$icon_value
+Terminal=false
+Categories=Utility;Network;Chat;
+StartupWMClass=claude-multi-account-$ID
+X-ClaudeMultiAccount-Id=$ID
+EOF
+  chmod +x "$LINUX_DESKTOP" 2>/dev/null || true
+
+  refresh_desktop_linux "$LINUX_APPS_DIR" "$LINUX_HICOLOR"
+
+  echo ""
+  if [ "$LINGUA" = "it" ]; then
+    echo "✅ Fatto! Trovi \"$NOME\" nel menu delle applicazioni."
+    echo ""
+    echo "   Primo accesso: usa \"Continua con email\" e incolla il CODICE ricevuto"
+    echo "   via email nella finestra (non cliccare il link nell'email)."
+  else
+    echo "✅ Done! You'll find \"$NOME\" in your applications menu."
+    echo ""
+    echo "   First sign-in: use \"Continue with email\" and paste the CODE you receive"
+    echo "   by email into the window (don't click the link in the email)."
+  fi
+}
+
 CLAUDE=""
 UNINSTALL=0
 if [ "${1-}" = "--uninstall" ]; then
@@ -369,13 +919,22 @@ if [ "${1-}" = "--uninstall" ]; then
 fi
 
 if [ "$UNINSTALL" -eq 0 ]; then
-  CLAUDE=$(find_claude)
+  if [ "$OS_KERNEL" = "Darwin" ]; then
+    CLAUDE=$(find_claude)
+  else
+    CLAUDE=$(find_claude_linux)
+  fi
   if [ -z "$CLAUDE" ]; then
     if [ -n "${CLAUDE_APP-}" ]; then
       die "❌ CLAUDE_APP does not point to an app: $CLAUDE_APP" "❌ CLAUDE_APP non indica un'app: $CLAUDE_APP"
     fi
-    die "❌ Claude Desktop not found on this Mac. Install it from claude.ai/download and open it once." \
-      "❌ Non trovo Claude Desktop su questo Mac. Installalo da claude.ai/download e aprilo una volta."
+    if [ "$OS_KERNEL" = "Darwin" ]; then
+      die "❌ Claude Desktop not found on this Mac. Install it from claude.ai/download and open it once." \
+        "❌ Non trovo Claude Desktop su questo Mac. Installalo da claude.ai/download e aprilo una volta."
+    else
+      die "❌ Claude Desktop not found on this system. Install claude-desktop (or set CLAUDE_APP=/path/to/claude-desktop) and try again." \
+        "❌ Non trovo Claude Desktop su questo sistema. Installa claude-desktop (o imposta CLAUDE_APP=/percorso/di/claude-desktop) e riprova."
+    fi
   fi
   echo "→ Claude: $CLAUDE"
 fi
@@ -412,23 +971,45 @@ if [ -z "$ID" ]; then
   die "❌ The name needs at least one letter or number." "❌ Il nome deve contenere almeno una lettera o un numero."
 fi
 
-PREFIX="$HOME/Library/Application Support/ClaudeMultiAccount"
-APP="$HOME/Applications/$NOME.app"
-APPS="$PREFIX/apps"
-NEW_DATI="$PREFIX/$NOME"
-NEW_COPIA="$APPS/$NOME.app"
-OLD_NESTED="$PREFIX/$NOME/app"
-LEGACY_MOTORE="$HOME/Library/Application Support/$NOME (app)"
-AGENT_LABEL="local.claude-multi-account.$ID"
-AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
-LOGFILE="$PREFIX/logs/$ID.log"
-if [ "$NEW_DATI" = "$PREFIX" ] || [ "$NEW_DATI" = "$APPS" ]; then
-  die "❌ This name is reserved. Choose another one." "❌ Questo nome è riservato. Scegline un altro."
-fi
-
-if [ "$UNINSTALL" -eq 1 ]; then
-  do_uninstall
-  exit 0
+if [ "$OS_KERNEL" != "Darwin" ]; then
+  XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+  XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+  PREFIX="$XDG_CONFIG_HOME/ClaudeMultiAccount"
+  NEW_DATI="$PREFIX/$NOME"
+  LINUX_BASE="$XDG_DATA_HOME/ClaudeMultiAccount"
+  LINUX_ICON_DIR="$LINUX_BASE/icons"
+  LINUX_COLORA="$LINUX_BASE/colora.py"
+  LINUX_CFG="$LINUX_BASE/config-$ID"
+  LINUX_LAUNCHER="$LINUX_BASE/launch-$ID.sh"
+  LINUX_APPS_DIR="$XDG_DATA_HOME/applications"
+  LINUX_DESKTOP="$LINUX_APPS_DIR/claude-multi-account-$ID.desktop"
+  LINUX_LEGACY_DESKTOP="$LINUX_APPS_DIR/$NOME.desktop"
+  LINUX_HICOLOR="$XDG_DATA_HOME/icons/hicolor"
+  if [ "$NEW_DATI" = "$PREFIX" ]; then
+    die "❌ This name is reserved. Choose another one." "❌ Questo nome è riservato. Scegline un altro."
+  fi
+  if [ "$UNINSTALL" -eq 1 ]; then
+    do_uninstall_linux
+    exit 0
+  fi
+else
+  PREFIX="$HOME/Library/Application Support/ClaudeMultiAccount"
+  APP="$HOME/Applications/$NOME.app"
+  APPS="$PREFIX/apps"
+  NEW_DATI="$PREFIX/$NOME"
+  NEW_COPIA="$APPS/$NOME.app"
+  OLD_NESTED="$PREFIX/$NOME/app"
+  LEGACY_MOTORE="$HOME/Library/Application Support/$NOME (app)"
+  AGENT_LABEL="local.claude-multi-account.$ID"
+  AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+  LOGFILE="$PREFIX/logs/$ID.log"
+  if [ "$NEW_DATI" = "$PREFIX" ] || [ "$NEW_DATI" = "$APPS" ]; then
+    die "❌ This name is reserved. Choose another one." "❌ Questo nome è riservato. Scegline un altro."
+  fi
+  if [ "$UNINSTALL" -eq 1 ]; then
+    do_uninstall
+    exit 0
+  fi
 fi
 
 if [ -z "$COLORE" ]; then
@@ -447,6 +1028,11 @@ case "$COLORE" in
   none|nessuno)    GRADI=""  ;;
   *) die "❌ Unknown color: $COLORE" "❌ Colore non riconosciuto: $COLORE" ;;
 esac
+
+if [ "$OS_KERNEL" != "Darwin" ]; then
+  install_linux
+  exit 0
+fi
 
 # Keep the data folder recorded in an existing launcher so the sign-in survives.
 DATI="$NEW_DATI"

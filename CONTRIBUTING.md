@@ -8,7 +8,7 @@ Thanks for helping! Bug reports are the most useful contribution: this tool depe
 
 Open an [issue](https://github.com/andrea6687/claude-multi-account/issues/new/choose) with the bug template and include:
 
-- your system (macOS or Windows version);
+- your system (macOS, Windows, or Linux version);
 - how Claude was installed (claude.ai/download, Microsoft Store, other);
 - the exact command you ran;
 - the full output of the script.
