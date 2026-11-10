@@ -132,6 +132,15 @@ footer a { color: inherit; }
     </div>
   </header>
 
+  <section aria-labelledby="h-app">
+    <div class="step"><b data-i="s0"></b><h2 id="h-app" data-i="app"></h2></div>
+    <div class="seg" role="group" aria-labelledby="h-app">
+      <button type="button" id="app-claude" data-app="claude">Claude</button>
+      <button type="button" id="app-codex" data-app="codex">Codex</button>
+      <button type="button" id="app-antigravity" data-app="antigravity">Antigravity</button>
+    </div>
+  </section>
+
   <section aria-labelledby="h-os">
     <div class="step"><b data-i="s1"></b><h2 id="h-os" data-i="os"></h2></div>
     <div class="seg" role="group" aria-labelledby="h-os">
@@ -175,7 +184,12 @@ footer a { color: inherit; }
 </main>
 
 <script>
-const RAW = "https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/";
+const RAW = "https://raw.githubusercontent.com/Symon180/claude-multi-account_for_linux/main/";
+const APPS = {
+  claude: { label: "Claude", defName: "Claude 2", sh: "install.sh", ps1: "install.ps1" },
+  codex: { label: "Codex", defName: "Codex 2", sh: "install-codex.sh", ps1: "install.ps1" },
+  antigravity: { label: "Antigravity", defName: "Antigravity 2", sh: "install-antigravity.sh", ps1: "install.ps1" }
+};
 // [command value, hue shift in degrees, English label, Italian label]
 const COLORS = [
   ["blue", 200, "blue", "blu"], ["green", 110, "green", "verde"], ["purple", 255, "purple", "viola"],
@@ -186,11 +200,11 @@ const BASE_HUE = 15; // Claude's icon starting hue
 
 const TEXT = {
   en: {
-    lead: "Stop signing out to switch between your personal and work Claude accounts. Open both at the same time, each with its own sign-in and icon.",
-    s1: "Step 1", s2: "Step 2", s3: "Step 3", s4: "Step 4",
-    os: "Your computer", name: "Name of the new app", color: "Icon color", run: "Copy and run the command",
+    lead: "Stop signing out to switch between your personal and work accounts. Open both at the same time, each with its own sign-in and icon.",
+    s0: "App", s1: "Step 1", s2: "Step 2", s3: "Step 3", s4: "Step 4",
+    app: "Application", os: "Your computer", name: "Name of the new app", color: "Icon color", run: "Copy and run the command",
     hintOk: "Letters, numbers, spaces, dashes.", hintBad: "Use only letters, numbers, spaces, - and _",
-    hintReserved: "Claude and AnthropicClaude are reserved names.",
+    hintReserved: "This default app name is reserved.",
     hintId: "Use at least one letter or number.",
     fixName: "Fix the name in step 2.",
     remove: "Remove",
@@ -198,25 +212,25 @@ const TEXT = {
     whereMac: "Terminal · Mac", whereWin: "PowerShell · Windows", whereLinux: "Terminal · Linux",
     howMac: `<li>Open <b>Terminal</b>: press <kbd>⌘</kbd> <kbd>Space</kbd> and type "Terminal".</li>
              <li>Paste the command with <kbd>⌘</kbd> <kbd>V</kbd> and press <kbd>Return</kbd>.</li>
-             <li>Claude Desktop must already be installed (it's found automatically). The Dock restarts for a moment.</li>
+             <li>The main app must already be installed (it's found automatically). The Dock restarts for a moment.</li>
              <li>You'll find the new app in Applications (in your home folder) or with Spotlight.</li>`,
     howWin: `<li>Right-click the Start button and choose <b>Terminal</b> (or Windows PowerShell).</li>
              <li>Paste the command with <kbd>Ctrl</kbd> <kbd>V</kbd> and press <kbd>Enter</kbd>.</li>
              <li>You'll find the new shortcut on the Desktop and in the Start menu.</li>`,
     howLinux: `<li>Open your <b>Terminal</b> application.</li>
                <li>Paste the command with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>V</kbd> and press <kbd>Enter</kbd>.</li>
-               <li>Claude Desktop must already be installed (it's found automatically).</li>
+               <li>The main app must already be installed (it's found automatically).</li>
                <li>You'll find the new app in your applications menu.</li>`,
     firstTitle: "The first sign-in",
     first: "In the new app don't use \"Continue with Google\". Type your email, press \"Continue with email\" and paste the code you receive into the window. If you click the link in the email, the other Claude opens instead. Alternatively, fully quit the main Claude before signing in.",
-    footer: "Unofficial tool, not affiliated with Anthropic. It doesn't modify the Claude app: it launches it with a separate data folder. Code on"
+    footer: "Unofficial tool, based on andrea6687/claude-multi-account. It doesn't modify the original app: it launches it with a separate data folder. Code on"
   },
   it: {
-    lead: "Basta uscire e rientrare per passare dall'account Claude personale a quello di lavoro. Aprili insieme, ognuno con il suo login e la sua icona.",
-    s1: "Passo 1", s2: "Passo 2", s3: "Passo 3", s4: "Passo 4",
-    os: "Il tuo computer", name: "Nome della nuova app", color: "Colore dell'icona", run: "Copia ed esegui il comando",
+    lead: "Basta uscire e rientrare per passare dall'account personale a quello di lavoro. Aprili insieme, ognuno con il suo login e la sua icona.",
+    s0: "App", s1: "Passo 1", s2: "Passo 2", s3: "Passo 3", s4: "Passo 4",
+    app: "Applicazione", os: "Il tuo computer", name: "Nome della nuova app", color: "Colore dell'icona", run: "Copia ed esegui il comando",
     hintOk: "Lettere, numeri, spazi, trattini.", hintBad: "Usa solo lettere, numeri, spazi, - e _",
-    hintReserved: "I nomi Claude e AnthropicClaude sono riservati.",
+    hintReserved: "Questo nome predefinito è riservato.",
     hintId: "Serve almeno una lettera o un numero.",
     fixName: "Correggi il nome al passo 2.",
     remove: "Rimuovi",
@@ -224,24 +238,25 @@ const TEXT = {
     whereMac: "Terminale · Mac", whereWin: "PowerShell · Windows", whereLinux: "Terminale · Linux",
     howMac: `<li>Apri il <b>Terminale</b>: premi <kbd>⌘</kbd> <kbd>Spazio</kbd> e scrivi "Terminale".</li>
              <li>Incolla il comando con <kbd>⌘</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
-             <li>Claude Desktop deve essere già installato (viene trovato da solo). Il Dock si riavvia per un attimo.</li>
+             <li>L'app principale deve essere già installata (viene trovata da sola). Il Dock si riavvia per un attimo.</li>
              <li>Trovi la nuova app in Applicazioni (nella tua cartella Inizio) o con Spotlight.</li>`,
     howWin: `<li>Clicca col tasto destro sul pulsante Start e scegli <b>Terminale</b> (o Windows PowerShell).</li>
              <li>Incolla il comando con <kbd>Ctrl</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
              <li>Trovi il nuovo collegamento sul Desktop e nel menu Start.</li>`,
     howLinux: `<li>Apri il <b>Terminale</b>.</li>
                <li>Incolla il comando con <kbd>Ctrl</kbd> <kbd>Maiusc</kbd> <kbd>V</kbd> e premi <kbd>Invio</kbd>.</li>
-               <li>Claude Desktop deve essere già installato (viene trovato da solo).</li>
+               <li>L'app principale deve essere già installata (viene trovata da sola).</li>
                <li>Trovi la nuova app nel menu delle applicazioni.</li>`,
     firstTitle: "Il primo accesso",
     first: "Nella nuova app non usare \"Continua con Google\". Scrivi l'email, premi \"Continua con email\" e incolla nella finestra il codice che ricevi. Se clicchi il link nell'email si apre l'altro Claude. In alternativa, chiudi del tutto il Claude principale prima di accedere.",
-    footer: "Strumento non ufficiale, non affiliato ad Anthropic. Non modifica l'app Claude: la avvia con una cartella dati separata. Codice su"
+    footer: "Strumento non ufficiale, basato su andrea6687/claude-multi-account. Non modifica l'app originale: la avvia con una cartella dati separata. Codice su"
   }
 };
 
 function savedLang() { try { return localStorage.getItem("lang"); } catch { return null; } }
 const state = {
   lang: savedLang() || (/^it\b/i.test(navigator.language || "") ? "it" : "en"),
+  app: "claude",
   os: /Win/i.test(navigator.userAgent) ? "win" : (/Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent) ? "linux" : "mac"),
   name: "Claude 2",
   color: "blue"
@@ -253,7 +268,7 @@ function nameProblem(n) {
   const t = (n || "").trim();
   if (!t) return "";
   if (!/^[A-Za-z0-9 _-]+$/.test(t)) return "bad";
-  if (/^(claude|anthropicclaude)$/i.test(t)) return "reserved";
+  if (/^(claude|anthropicclaude|codex|openaicodex|antigravity|googleantigravity|agy)$/i.test(t)) return "reserved";
   if (!/[A-Za-z0-9]/.test(t)) return "id";
   return "";
 }
@@ -270,6 +285,15 @@ COLORS.forEach(([c]) => {
   b.onclick = () => { state.color = c; render(); };
   sw.append(b);
 });
+document.querySelectorAll("[data-app]").forEach(b => b.onclick = () => {
+  const prevDef = APPS[state.app].defName;
+  state.app = b.dataset.app;
+  if (!state.name.trim() || state.name.trim() === prevDef) {
+    state.name = APPS[state.app].defName;
+    $("name").value = state.name;
+  }
+  render();
+});
 document.querySelectorAll("[data-os]").forEach(b => b.onclick = () => { state.os = b.dataset.os; render(); });
 document.querySelectorAll("[data-lang]").forEach(b => b.onclick = () => {
   state.lang = b.dataset.lang;
@@ -279,18 +303,21 @@ document.querySelectorAll("[data-lang]").forEach(b => b.onclick = () => {
 $("name").addEventListener("input", e => { state.name = e.target.value; render(); });
 
 function command() {
-  const n = state.name.trim() || "Claude 2";
+  const appCfg = APPS[state.app];
+  const n = state.name.trim() || appCfg.defName;
   if (state.os === "mac" || state.os === "linux") {
-    return `curl -fsSL ${RAW}install.sh | bash -s -- "${n}" ${state.color}`;
+    return `curl -fsSL ${RAW}${appCfg.sh} | bash -s -- "${n}" ${state.color}`;
   }
-  return `& ([scriptblock]::Create((irm ${RAW}install.ps1))) "${n}" ${state.color}`;
+  return `& ([scriptblock]::Create((irm ${RAW}${appCfg.ps1}))) "${n}" ${state.color}`;
 }
 
 function render() {
   const T = TEXT[state.lang];
+  const appCfg = APPS[state.app];
   document.documentElement.lang = state.lang;
   document.querySelectorAll("[data-i]").forEach(el => { el.textContent = T[el.dataset.i]; });
   document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === state.lang));
+  document.querySelectorAll("[data-app]").forEach(b => b.setAttribute("aria-pressed", b.dataset.app === state.app));
   document.querySelectorAll(".swatch").forEach(b => {
     const row = COLORS.find(x => x[0] === b.dataset.c);
     b.querySelector("span").textContent = state.lang === "it" ? row[3] : row[2];
@@ -307,7 +334,7 @@ function render() {
 
   const pick = state.color === "none" ? "hsl(15, 62%, 56%)" : `hsl(${hueFor(state.color)}, 62%, 52%)`;
   document.documentElement.style.setProperty("--pick", pick);
-  const n = (state.name.trim() || "Claude 2");
+  const n = (state.name.trim() || appCfg.defName);
   $("badge").textContent = n.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "C2";
 
   $("cmd").textContent = ok ? command() : T.fixName;
@@ -315,10 +342,10 @@ function render() {
   $("copy").textContent = T.copy;
   $("where").textContent = state.os === "mac" ? T.whereMac : (state.os === "linux" ? T.whereLinux : T.whereWin);
   $("howto").innerHTML = state.os === "mac" ? T.howMac : (state.os === "linux" ? T.howLinux : T.howWin);
-  const shown = state.name.trim() || "Claude 2";
+  const shown = state.name.trim() || appCfg.defName;
   const removeCmd = (state.os === "mac" || state.os === "linux")
-    ? `curl -fsSL ${RAW}install.sh | bash -s -- --uninstall "${shown}"`
-    : `& ([scriptblock]::Create((irm ${RAW}install.ps1))) -Uninstall "${shown}"`;
+    ? `curl -fsSL ${RAW}${appCfg.sh} | bash -s -- --uninstall "${shown}"`
+    : `& ([scriptblock]::Create((irm ${RAW}${appCfg.ps1}))) -Uninstall "${shown}"`;
   $("uninstall").textContent = ok ? `${T.remove}: ${removeCmd}` : "";
 }
 

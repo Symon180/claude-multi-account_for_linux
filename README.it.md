@@ -2,9 +2,9 @@
 
 🇬🇧 [English version](README.md)
 
-> **Progetto originale / Crediti:** Questo repository è un fork/estensione del progetto originale [**`andrea6687/claude-multi-account`**](https://github.com/andrea6687/claude-multi-account) realizzato da **Andrea Sportello** ([pagina web](https://andrea6687.github.io/claude-multi-account/)), creato per aggiungere il supporto a **Linux** oltre a macOS e Windows.
+> **Progetto originale / Crediti:** Questo repository è un fork/estensione del progetto originale [**`andrea6687/claude-multi-account`**](https://github.com/andrea6687/claude-multi-account) realizzato da **Andrea Sportello** ([pagina web](https://andrea6687.github.io/claude-multi-account/)), creato per aggiungere il supporto a **Linux** oltre a macOS e Windows, e per estendere il sistema anche a **OpenAI Codex** (`install-codex.sh`) e **Google Antigravity** (`install-antigravity.sh`).
 
-**Basta uscire e rientrare per passare dall'account Claude personale a quello di lavoro.**
+**Basta uscire e rientrare per passare dall'account personale a quello di lavoro su Claude, Codex o Antigravity.**
 
 ![Due finestre di Claude Desktop affiancate, collegate ad account diversi, con icone di colore diverso nel Dock](assets/hero.png)
 
@@ -42,6 +42,26 @@ curl -fsSL https://raw.githubusercontent.com/andrea6687/claude-multi-account/mai
 **Windows**
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/andrea6687/claude-multi-account/main/install.ps1))) "Claude 2" blue
+```
+
+### OpenAI Codex & Google Antigravity (Mac / Linux)
+
+Sono inclusi anche gli script dedicati per **OpenAI Codex Desktop** (`install-codex.sh`, che isola sia `--user-data-dir` sia `CODEX_HOME`) e **Google Antigravity** (`install-antigravity.sh`, che isola `--user-data-dir` e `--extensions-dir`):
+
+**OpenAI Codex**
+```bash
+# Installazione:
+curl -fsSL https://raw.githubusercontent.com/Symon180/claude-multi-account_for_linux/main/install-codex.sh | bash -s -- "Codex 2" blue
+# Rimozione:
+curl -fsSL https://raw.githubusercontent.com/Symon180/claude-multi-account_for_linux/main/install-codex.sh | bash -s -- --uninstall "Codex 2"
+```
+
+**Google Antigravity**
+```bash
+# Installazione:
+curl -fsSL https://raw.githubusercontent.com/Symon180/claude-multi-account_for_linux/main/install-antigravity.sh | bash -s -- "Antigravity 2" purple
+# Rimozione:
+curl -fsSL https://raw.githubusercontent.com/Symon180/claude-multi-account_for_linux/main/install-antigravity.sh | bash -s -- --uninstall "Antigravity 2"
 ```
 
 ## Il primo accesso (importante)
