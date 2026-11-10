@@ -2,6 +2,8 @@
 
 🇮🇹 [Versione italiana](README.it.md)
 
+> **Original project / Credits:** This repository is a fork/extension of [**`andrea6687/claude-multi-account`**](https://github.com/andrea6687/claude-multi-account) created by **Andrea Sportello** ([web interface](https://andrea6687.github.io/claude-multi-account/)), adding **Linux** compatibility alongside the original macOS and Windows support.
+
 **Stop signing out to switch between your personal and work Claude accounts.**
 
 ![Two Claude Desktop windows side by side, signed in to different accounts, with differently colored icons in the Dock](assets/hero.png)

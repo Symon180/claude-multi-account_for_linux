@@ -1,6 +1,8 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 #  Claude Multi Account – macOS & Linux
+#  Original project: https://github.com/andrea6687/claude-multi-account (© Andrea Sportello)
+#  Linux port/extension: https://github.com/Symon180/claude-multi-account_for_linux
 #
 #  Creates a second app ("Claude 2") that launches Claude Desktop with a
 #  separate login, so you can use two accounts side by side. It also gets an
